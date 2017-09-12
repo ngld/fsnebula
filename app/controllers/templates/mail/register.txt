@@ -1,0 +1,3 @@
+Hi {{ username }},
+
+please click the following link to confirm your registration: {{ link }}

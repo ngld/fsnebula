@@ -1,0 +1,18 @@
+# misc
+.DS_Store
+*~
+
+# Python
+*.pyc
+*.pyo
+__pycache__
+
+# generated files
+/py-env/
+
+# Sublime Text
+*.sublime-*
+
+# PyCharm / IntelliJ
+.idea
+.lock-*
