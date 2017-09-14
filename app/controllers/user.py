@@ -1,6 +1,7 @@
 from email.message import EmailMessage
 from secrets import token_urlsafe
-from flask import request, jsonify, render_template
+from flask import request, jsonify, render_template, url_for, abort
+from mongoengine.errors import NotUniqueError
 
 from .. import app
 from ..models import User
@@ -14,7 +15,7 @@ from ..helpers import (
 def register():
     for field in {'name', 'email', 'password'}:
         if field not in request.form:
-            app.abort(401)
+            abort(401)
 
     user = User(
         username=request.form['name'],
@@ -22,14 +23,17 @@ def register():
         password=hash_password(request.form['password']),
         register_token=token_urlsafe(30)
     )
-    user.save()
+
+    try:
+        user.save(True)
+    except NotUniqueError:
+        return jsonify(result=False, reason='already registered')
 
     msg = EmailMessage()
     msg['To'] = user.email
     msg.set_content(render_template('mail/register.txt',
         username=user.username,
-        link=app.url_for('confirm_register',
-            username=user.username, token=user.register_token)
+        link=url_for('confirm_register', username=user.username, token=user.register_token, _external=True)
     ))
     send_mail(msg)
 
@@ -40,7 +44,7 @@ def register():
 def confirm_register(username, token):
     user = User.objects(username=username).first()
     if not user or user.register_token != token:
-        app.abort(404)
+        abort(404)
 
     user.register_token = None
     user.active = True
@@ -53,14 +57,13 @@ def confirm_register(username, token):
 def reset_password():
     user = User.objects(username=request.form.get('user')).first()
     if not user:
-        app.abort(404)
+        abort(404)
 
     msg = EmailMessage()
     msg['To'] = user.email
     msg.set_content(render_template('mail/reset.txt',
         username=user.username,
-        link=app.url_for('recover_password',
-            username=user.username, token=user.register_token)
+        link=url_for('recover_password', username=user.username, token=user.register_token, _external=True)
     ))
     send_mail(msg)
 
@@ -70,7 +73,7 @@ def reset_password():
 @app.route('/api/1/login', methods={'POST'})
 def login():
     user = User.objects(username=request.form.get('user')).first()
-    if not user or not verify_password(request.form.get('password'), user.password):
+    if not user or not user.active or not verify_password(request.form.get('password'), user.password):
         return jsonify(result=False)
 
     return jsonify(
@@ -82,8 +85,19 @@ def login():
 @app.route('/api/1/change_password', methods={'POST'})
 def change_password():
     user = verify_token()
+    if not user:
+        abort(403)
 
     user.password = hash_password(request.form['password'])
     user.save()
 
     return jsonify(result=True)
+
+
+@app.route('/api/1/list_users', methods={'GET'})
+def get_users():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    return jsonify(result=True, list=[o.username for o in User.objects(active=True)])
