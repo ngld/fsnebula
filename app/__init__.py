@@ -9,7 +9,7 @@ app = Flask(__name__)
 app.config.from_envvar('NEBULA_SETTINGS')
 connect(host=app.config['MONGO_DB'])
 
-from .controllers import user  # noqa
+from .controllers import user, mod, upload  # noqa
 
 app.add_url_rule('/storage/<filename>', 'storage', build_only=True)
 app.wsgi_app = SharedDataMiddleware(app.wsgi_app, {

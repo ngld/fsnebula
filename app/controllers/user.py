@@ -13,10 +13,6 @@ from ..helpers import (
 # TODO: Prevent abuse (spamming someone with registration mails)
 @app.route('/api/1/register', methods={'POST'})
 def register():
-    for field in {'name', 'email', 'password'}:
-        if field not in request.form:
-            abort(401)
-
     user = User(
         username=request.form['name'],
         email=request.form['email'],

@@ -61,7 +61,7 @@ class Package(EmbeddedDocument):
 class ModRelease(EmbeddedDocument):
     version = StringField(required=True, max_length=32)
     description = StringField(max_length=10240)
-    release_thread = StringField(required=True, max_length=300)
+    release_thread = StringField(max_length=300)
     videos = ListField(StringField(max_length=300))
     notes = StringField(max_length=10240)
     last_update = DateTimeField()
@@ -75,8 +75,8 @@ class Mod(Document):
     title = StringField(required=True, max_length=200, unique=True)
     type = StringField(max_length=10)
     folder = StringField(max_length=30)
-    logo = StringField(required=True, max_length=128)
-    tile = StringField(required=True, max_length=128)
+    logo = StringField(max_length=128)
+    tile = StringField(max_length=128)
     first_release = DateTimeField()
     members = ListField(ReferenceField(User))
     releases = EmbeddedDocumentListField(ModRelease)
@@ -104,7 +104,7 @@ class UploadedFile(Document):
             raise ValueError()
 
         # Strip off the "public/" prefix
-        return url_for('storage', filename=self.filename[8:], _external=True)
+        return url_for('storage', filename=self.filename[7:], _external=True)
 
     def make_permanent(self):
         if self.expires == -1:
@@ -116,6 +116,6 @@ class UploadedFile(Document):
 
         dest_path = os.path.join(app.config['FILE_STORAGE'], self.filename)
 
-        os.makedirs(dest_path, exist_ok=True)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.move(os.path.join(app.config['FILE_STORAGE'], old_path), dest_path)
         self.save()

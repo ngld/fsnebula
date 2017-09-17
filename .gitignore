@@ -16,3 +16,4 @@ __pycache__
 # PyCharm / IntelliJ
 .idea
 .lock-*
+uploads/

@@ -8,6 +8,16 @@ from ..helpers import verify_token, gen_hash
 from ..models import UploadedFile
 
 
+@app.route('/api/1/upload/check', methods={'POST'})
+def check_uploaded():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    file = UploadedFile.objects(checksum=request.form['checksum']).first()
+    return jsonify(result=bool(file))
+
+
 @app.route('/api/1/upload/file', methods={'POST'})
 def upload_file():
     user = verify_token()

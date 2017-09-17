@@ -1,6 +1,6 @@
-import time
 import os.path
 import json
+from datetime import datetime
 from flask import request, jsonify, abort
 
 from .. import app
@@ -14,36 +14,32 @@ def create_mod():
     if not user:
         abort(403)
 
-    form = request.form
-    for field in ('id', 'title', 'type', 'folder', 'logo', 'tile', 'members'):
-        if field not in form:
-            abort(400)
-
-    if not isinstance(form['members'], list):
+    meta = request.get_json()
+    if not meta:
         abort(400)
 
-    mod = Mod(mid=form['id'],
-              title=form['title'],
-              type=form['type'],
-              folder=form['folder'],
-              first_release=time.time(),
+    mod = Mod(mid=meta['id'],
+              title=meta['title'],
+              type=meta['type'],
+              folder=meta['folder'],
+              first_release=datetime.now(),
               members=[user])
 
-    if form['logo'] != '':
-        logo = UploadedFile.objects(checksum=form['logo']).first()
+    if meta['logo'] != '':
+        logo = UploadedFile.objects(checksum=meta['logo']).first()
 
         if logo:
             logo.make_permanent()
             mod.logo = logo.checksum
 
-    if form['tile'] != '':
-        tile = UploadedFile.objects(checksum=form['tile']).first()
+    if meta['tile'] != '':
+        tile = UploadedFile.objects(checksum=meta['tile']).first()
 
         if tile:
             tile.make_permanent()
             mod.tile = tile.checksum
 
-    for name in form['members']:
+    for name in meta['members']:
         member = User.objects(username=name).first()
         if member:
             mod.members.append(member)
@@ -63,38 +59,34 @@ def update_mod():
     if not user:
         abort(403)
 
-    form = request.form
-    for field in ('id', 'title', 'logo', 'tile', 'members'):
-        if field not in form:
-            abort(400)
-
-    if not isinstance(form['members'], list):
+    meta = request.get_json()
+    if not meta:
         abort(400)
 
-    mod = Mod.objects(mid=form['id']).first()
+    mod = Mod.objects(mid=meta['id']).first()
     if not mod:
         abort(404)
 
     if user not in mod.members:
         return jsonify(result=False, reason='unauthorized')
 
-    mod.title = form['title']
+    mod.title = meta['title']
 
-    if mod.logo != form['logo']:
-        logo = UploadedFile.objects(checksum=form['logo']).first()
+    if mod.logo != meta['logo']:
+        logo = UploadedFile.objects(checksum=meta['logo']).first()
 
         if logo:
             logo.make_permanent()
             mod.logo = logo.checksum
 
-    if mod.tile != form['tile']:
-        tile = UploadedFile.objects(checksum=form['tile']).first()
+    if mod.tile != meta['tile']:
+        tile = UploadedFile.objects(checksum=meta['tile']).first()
 
         if tile:
             tile.make_permanent()
             mod.tile = tile.checksum
 
-    members = form['members']
+    members = meta['members']
     current = []
     for i, obj in enumerate(reversed(mod.members)):
         if obj.username not in members:
@@ -119,12 +111,11 @@ def create_release():
     if not user:
         abort(403)
 
-    form = request.form
-    for field in ('id',):
-        if field not in form:
-            abort(400)
+    meta = request.get_json()
+    if not meta:
+        abort(400)
 
-    mod = Mod.objects(mid=form['id']).first()
+    mod = Mod.objects(mid=meta['id']).first()
     if not mod:
         abort(404)
 
@@ -132,16 +123,16 @@ def create_release():
         return jsonify(result=False, reason='unauthorized')
 
     release = ModRelease(
-        version=form['version'],
-        description=form['description'],
-        release_thread=form['release_thread'],
-        videos=form['videos'],
-        notes=form['notes'],
-        last_update=time.time(),
-        cmdline=form['cmdline'])
+        version=meta['version'],
+        description=meta['description'],
+        release_thread=meta['release_thread'],
+        videos=meta['videos'],
+        notes=meta['notes'],
+        last_update=datetime.now(),
+        cmdline=meta['cmdline'])
 
     files = []
-    for pmeta in form['packages']:
+    for pmeta in meta['packages']:
         pkg = Package(
             name=pmeta['name'],
             notes=pmeta['notes'],
@@ -195,6 +186,24 @@ def create_release():
     return jsonify(result=True)
 
 
+@app.route('/api/1/mod/editable', methods={'GET'})
+def get_editable_mods():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mods = [mod.mid for mod in Mod.objects(members=user.username)]
+    return jsonify(result=True, mods=mods)
+
+
+@app.route('/api/1/mod/rebuild_repo', methods={'GET'})
+def rebuild_repo():
+    # TODO Access check
+    generate_repo()
+
+    return jsonify(result=True)
+
+
 def generate_repo():
     repo_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo.json')
     lock_path = repo_path + '.lock'
@@ -206,83 +215,87 @@ def generate_repo():
     open(lock_path, 'w').close()
     app.logger.info('Updating repo...')
 
-    repo = []
-    for mod in Mod.objects:
-        for rel in mod.releases:
-            if rel.hidden:
-                continue
+    try:
+        repo = []
+        for mod in Mod.objects:
+            logo = UploadedFile.objects(checksum=mod.logo).first()
+            tile = UploadedFile.objects(checksum=mod.tile).first()
 
-            logo = UploadedFile.objects(checksum=rel.logo).first()
-            tile = UploadedFile.objects(checksum=rel.tile).first()
+            for rel in mod.releases:
+                if rel.hidden:
+                    continue
 
-            rmeta = {
-                'id': mod.mid,
-                'title': mod.title,
-                'version': rel.version,
-                'description': rel.description,
-                'logo': logo and logo.get_url() or None,
-                'tile': tile and tile.get_url() or None,
-                'release_thread': rel.release_thread,
-                'videos': rel.videos,
-                'notes': rel.notes,
-                'folder': mod.folder,
-                'first_release': mod.first_release,
-                'last_update': None,
-                'cmdline': rel.cmdline,
-                'type': mod.type,
-                'packages': []
-            }
-
-            for pkg in rel.packages:
-                pmeta = {
-                    'name': pkg.name,
-                    'notes': pkg.notes,
-                    'status': pkg.status,
-                    'dependencies': [],
-                    'environment': pkg.environment,
-                    'executables': [],
-                    'files': [],
-                    'filelist': []
+                rmeta = {
+                    'id': mod.mid,
+                    'title': mod.title,
+                    'version': rel.version,
+                    'description': rel.description,
+                    'logo': logo and logo.get_url() or None,
+                    'tile': tile and tile.get_url() or None,
+                    'release_thread': rel.release_thread,
+                    'videos': rel.videos,
+                    'notes': rel.notes,
+                    'folder': mod.folder,
+                    'first_release': mod.first_release.isoformat(),
+                    'last_update': None,
+                    'cmdline': rel.cmdline,
+                    'type': mod.type,
+                    'packages': []
                 }
 
-                for dep in pkg.dependencies:
-                    pmeta['dependencies'].append({
-                        'id': dep.id,
-                        'version': dep.version,
-                        'packages': dep.packages
-                    })
+                for pkg in rel.packages:
+                    pmeta = {
+                        'name': pkg.name,
+                        'notes': pkg.notes,
+                        'status': pkg.status,
+                        'dependencies': [],
+                        'environment': pkg.environment,
+                        'executables': [],
+                        'files': [],
+                        'filelist': []
+                    }
 
-                for exe in pkg.executables:
-                    pmeta['executables'].append({
-                        'file': exe.file,
-                        'debug': exe.debug
-                    })
+                    for dep in pkg.dependencies:
+                        pmeta['dependencies'].append({
+                            'id': dep.id,
+                            'version': dep.version,
+                            'packages': dep.packages
+                        })
 
-                for archive in pkg.files:
-                    arfile = UploadedFile.objects(checksum=archive.checksum).first()
+                    for exe in pkg.executables:
+                        pmeta['executables'].append({
+                            'file': exe.file,
+                            'debug': exe.debug
+                        })
 
-                    pmeta['files'].append({
-                        'filename': archive.filename,
-                        'dest': archive.dest,
-                        'checksum': ('sha256', archive.checksum),
-                        'filesize': archive.filesize,
-                        'urls': [arfile.get_url()]
-                    })
+                    for archive in pkg.files:
+                        arfile = UploadedFile.objects(checksum=archive.checksum).first()
 
-                for file in pkg.filelist:
-                    pmeta['filelist'].append({
-                        'filename': file.filename,
-                        'archive': file.archive,
-                        'orig_name': file.orig_name,
-                        'checksum': file.checksum
-                    })
+                        pmeta['files'].append({
+                            'filename': archive.filename,
+                            'dest': archive.dest,
+                            'checksum': ('sha256', archive.checksum),
+                            'filesize': archive.filesize,
+                            'urls': [arfile.get_url()]
+                        })
 
-                rmeta['packages'].append(pmeta)
+                    for file in pkg.filelist:
+                        pmeta['filelist'].append({
+                            'filename': file.filename,
+                            'archive': file.archive,
+                            'orig_name': file.orig_name,
+                            'checksum': file.checksum
+                        })
 
-            repo.append(rmeta)
+                    rmeta['packages'].append(pmeta)
 
-    with open(repo_path, 'w') as stream:
-        json.dump(stream, {'mods': repo})
+                repo.append(rmeta)
+
+        with open(repo_path, 'w') as stream:
+            json.dump({'mods': repo}, stream)
+
+    except Exception:
+        app.logger.exception('Failed to update repository data!')
 
     app.logger.info('Repo update finished.')
     os.unlink(lock_path)
