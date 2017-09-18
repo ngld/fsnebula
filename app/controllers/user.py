@@ -27,6 +27,7 @@ def register():
 
     msg = EmailMessage()
     msg['To'] = user.email
+    msg['Subject'] = 'Confirm your registration on fsnebula.org'
     msg.set_content(render_template('mail/register.txt',
         username=user.username,
         link=url_for('confirm_register', username=user.username, token=user.register_token, _external=True)

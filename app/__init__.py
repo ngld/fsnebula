@@ -7,7 +7,7 @@ __all__ = {'app'}
 
 app = Flask(__name__)
 app.config.from_envvar('NEBULA_SETTINGS')
-connect(host=app.config['MONGO_DB'])
+connect(host=app.config['MONGO_DB'], connect=False)
 
 from .controllers import user, mod, upload  # noqa
 
