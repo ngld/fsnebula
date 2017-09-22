@@ -1,5 +1,6 @@
 import os.path
 import json
+import semantic_version
 from datetime import datetime
 from flask import request, jsonify, abort
 
@@ -105,8 +106,7 @@ def update_mod():
     return jsonify(result=True)
 
 
-@app.route('/api/1/mod/release', methods={'POST'})
-def create_release():
+def _do_preflight():
     user = verify_token()
     if not user:
         abort(403)
@@ -120,7 +120,7 @@ def create_release():
         abort(404)
 
     if user not in mod.members:
-        return jsonify(result=False, reason='unauthorized')
+        return None, jsonify(result=False, reason='unauthorized')
 
     release = ModRelease(
         version=meta['version'],
@@ -130,6 +130,40 @@ def create_release():
         notes=meta['notes'],
         last_update=datetime.now(),
         cmdline=meta['cmdline'])
+
+    try:
+        new_ver = semantic_version.Version(meta['version'])
+    except ValueError:
+        app.logger.exception('Invalid version "%s" provided during preflight check!' % meta['version'])
+        return None, jsonify(result=False, reason='invalid version')
+
+    for rel in mod.releases:
+        try:
+            rv = semantic_version.Version(rel.version)
+        except ValueError:
+            app.logger.exception('Mod %s has an invalid version %s!' % (mod.mid, rel.version))
+            continue
+
+        if rv >= new_ver:
+            return None, jsonify(result=False, reason='outdated version')
+
+    return meta, mod, release, None
+
+
+@app.route('/api/1/mod/release/preflight', methods={'POST'})
+def preflight_release():
+    meta, mod, rel, resp = _do_preflight()
+    if rel:
+        return jsonify(result=True)
+    else:
+        return resp
+
+
+@app.route('/api/1/mod/release', methods={'POST'})
+def create_release():
+    meta, mod, release, error = _do_preflight()
+    if error:
+        return error
 
     files = []
     for pmeta in meta['packages']:
@@ -236,7 +270,7 @@ def generate_repo():
                     'videos': rel.videos,
                     'notes': rel.notes,
                     'folder': mod.folder,
-                    'first_release': mod.first_release.isoformat(),
+                    'first_release': mod.first_release.strftime('%Y-%m-%d'),
                     'last_update': None,
                     'cmdline': rel.cmdline,
                     'type': mod.type,

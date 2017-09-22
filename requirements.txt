@@ -11,5 +11,6 @@ pycparser==2.18
 PyJWT==1.5.3
 pymongo==3.5.1
 python-magic==0.4.13
+semantic-version==2.6.0
 six==1.10.0
 Werkzeug==0.12.2

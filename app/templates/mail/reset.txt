@@ -1,0 +1,5 @@
+Hi {{ username }},
+
+you tried to reset your password, click this link to do so: {{ link }}
+
+If you didn't request this mail, someone else might be trying to take over your account. Please contact ngld.

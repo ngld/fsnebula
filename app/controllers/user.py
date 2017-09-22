@@ -50,17 +50,45 @@ def confirm_register(username, token):
     return 'Success!'
 
 
+@app.route('/recover/<username>/<token>', methods={'GET', 'POST'})
+def recover_password(username, token):
+    user = User.objects(username=username).first()
+    if not user or user.reset_token != token:
+        abort(404)
+
+    msg = None
+    if 'new_password' in request.form:
+        if request.form['new_password'] != request.form['confirm']:
+            msg = "The passwords don't match!"
+        elif len(request.form['new_password']) < 5:
+            msg = "The password needs to be at least 5 characters long."
+        else:
+            user.reset_token = None
+            user.register_token = None
+            user.active = True
+            user.password = hash_password(request.form['new_password'])
+            user.save()
+
+            return render_template('reset.html', success=True)
+
+    return render_template('reset.html', success=False, msg=msg)
+
+
 @app.route('/api/1/reset_password', methods={'POST'})
 def reset_password():
     user = User.objects(username=request.form.get('user')).first()
     if not user:
         abort(404)
 
+    user.reset_token = token_urlsafe(30)
+    user.save()
+
     msg = EmailMessage()
     msg['To'] = user.email
+    msg['Subject'] = 'FSNebula - Password reset'
     msg.set_content(render_template('mail/reset.txt',
         username=user.username,
-        link=url_for('recover_password', username=user.username, token=user.register_token, _external=True)
+        link=url_for('recover_password', username=user.username, token=user.reset_token, _external=True)
     ))
     send_mail(msg)
 
