@@ -2,10 +2,11 @@ import os.path
 import json
 import semantic_version
 from datetime import datetime
+from email.message import EmailMessage
 from flask import request, jsonify, abort
 
 from .. import app
-from ..helpers import verify_token
+from ..helpers import verify_token, send_mail
 from ..models import User, Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile
 
 
@@ -217,6 +218,62 @@ def create_release():
         file.make_permanent()
 
     generate_repo()
+    return jsonify(result=True)
+
+
+@app.route('/api/1/mod/release/delete', methods={'POST'})
+def delete_release():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mod = Mod.objects(mid=request.form['mid']).first()
+    if not mod:
+        abort(404)
+
+    version = request.form['version']
+    release = None
+    for rel in mod.releases:
+        if rel.version == version:
+            release = rel
+            break
+
+    if not release:
+        abort(404)
+
+    release.hidden = True
+    release.save()
+
+    generate_repo()
+    return jsonify(result=True)
+
+
+@app.route('/api/1/mod/release/report', methods={'POST'})
+def report_release():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mod = Mod.objects(mid=request.form['mid']).first()
+    if not mod:
+        abort(404)
+
+    version = request.form['version']
+    release = None
+    for rel in mod.releases:
+        if rel.version == version:
+            release = rel
+            break
+
+    if not release:
+        abort(404)
+
+    msg = EmailMessage()
+    msg['To'] = app.config['ADMIN_MAIL']
+    msg['Subject'] = 'FSNebula Abuse Report - %s %s' % (mod.title, version)
+    msg.set_content('User: %s\nMessage:\n%s' % (user.username, request.form['message']))
+    send_mail(msg)
+
     return jsonify(result=True)
 
 
