@@ -120,7 +120,7 @@ def _do_preflight():
         abort(404)
 
     if user not in mod.members:
-        return None, jsonify(result=False, reason='unauthorized')
+        return meta, mod, None, jsonify(result=False, reason='unauthorized')
 
     release = ModRelease(
         version=meta['version'],
@@ -135,7 +135,7 @@ def _do_preflight():
         new_ver = semantic_version.Version(meta['version'])
     except ValueError:
         app.logger.exception('Invalid version "%s" provided during preflight check!' % meta['version'])
-        return None, jsonify(result=False, reason='invalid version')
+        return meta, mod, None, jsonify(result=False, reason='invalid version')
 
     for rel in mod.releases:
         try:
@@ -145,7 +145,7 @@ def _do_preflight():
             continue
 
         if rv >= new_ver:
-            return None, jsonify(result=False, reason='outdated version')
+            return meta, mod, None, jsonify(result=False, reason='outdated version')
 
     return meta, mod, release, None
 
