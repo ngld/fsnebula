@@ -231,6 +231,9 @@ def delete_release():
     if not mod:
         abort(404)
 
+    if user not in mod.members:
+        return jsonify(result=False, reason='unauthorized')
+
     version = request.form['version']
     release = None
     for rel in mod.releases:
