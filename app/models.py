@@ -30,7 +30,7 @@ class Dependency(EmbeddedDocument):
 
 class Executable(EmbeddedDocument):
     file = StringField(required=True, max_length=120)
-    debug = BooleanField(default=False)
+    label = StringField(max_length=128, default=None)
 
 
 class ModArchive(EmbeddedDocument):

@@ -179,7 +179,7 @@ def create_release():
             pkg.dependencies.append(dep)
 
         for emeta in pmeta['executables']:
-            exe = Executable(file=emeta['file'], debug=emeta['debug'])
+            exe = Executable(file=emeta['file'], label=emeta['label'])
             pkg.executables.append(exe)
 
         for ameta in pmeta['files']:
@@ -359,7 +359,7 @@ def generate_repo():
                     for exe in pkg.executables:
                         pmeta['executables'].append({
                             'file': exe.file,
-                            'debug': exe.debug
+                            'label': exe.label
                         })
 
                     for archive in pkg.files:
