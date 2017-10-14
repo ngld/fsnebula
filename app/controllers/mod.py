@@ -23,7 +23,6 @@ def create_mod():
     mod = Mod(mid=meta['id'],
               title=meta['title'],
               type=meta['type'],
-              folder=meta['folder'],
               first_release=datetime.now(),
               members=[user])
 
@@ -329,7 +328,6 @@ def generate_repo():
                     'release_thread': rel.release_thread,
                     'videos': rel.videos,
                     'notes': rel.notes,
-                    'folder': mod.folder,
                     'first_release': mod.first_release.strftime('%Y-%m-%d'),
                     'last_update': None,
                     'cmdline': rel.cmdline,
