@@ -129,7 +129,8 @@ def _do_preflight():
         videos=meta['videos'],
         notes=meta['notes'],
         last_update=datetime.now(),
-        cmdline=meta['cmdline'])
+        cmdline=meta['cmdline'],
+        mod_flag=meta['mod_flag'])
 
     try:
         new_ver = semantic_version.Version(meta['version'])
@@ -174,7 +175,7 @@ def create_release():
             environment=pmeta['environment'])
 
         for dmeta in pmeta['dependencies']:
-            dep = Dependency(id=dmeta['id'], version=dmeta['version'], packages=dmeta['packages'])
+            dep = Dependency(id=dmeta['id'], version=dmeta.get('version', None), packages=dmeta.get('packages', []))
             pkg.dependencies.append(dep)
 
         for emeta in pmeta['executables']:

@@ -32,6 +32,7 @@ def upload_file():
     if gen_hash(file.stream, 'sha256') != checksum:
         return jsonify(result=False, reason='checksum')
 
+    file.seek(0)
     mime = magic.from_buffer(file.read(1024), mime=True)
     if mime in app.config['MIME_BLACKLIST']:
         return jsonify(result=False, reason='invalid mime')

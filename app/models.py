@@ -24,7 +24,7 @@ class User(Document):
 
 class Dependency(EmbeddedDocument):
     id = StringField(required=True, max_length=120)
-    version = StringField(required=True, max_length=32)
+    version = StringField(max_length=32)
     packages = ListField(StringField(max_length=120))
 
 
@@ -66,6 +66,7 @@ class ModRelease(EmbeddedDocument):
     notes = StringField(max_length=10240)
     last_update = DateTimeField()
     cmdline = StringField(max_length=300)
+    mod_flag = ListField(StringField(max_length=100))
     packages = EmbeddedDocumentListField(Package)
     hidden = BooleanField(default=False)
 
