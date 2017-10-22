@@ -77,6 +77,7 @@ class Mod(Document):
     type = StringField(max_length=10)
     logo = StringField(max_length=128)
     tile = StringField(max_length=128)
+    banner = StringField(max_length=128)
     first_release = DateTimeField()
     members = ListField(ReferenceField(User))
     releases = EmbeddedDocumentListField(ModRelease)

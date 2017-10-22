@@ -26,19 +26,13 @@ def create_mod():
               first_release=datetime.now(),
               members=[user])
 
-    if meta['logo'] != '':
-        logo = UploadedFile.objects(checksum=meta['logo']).first()
+    for prop in ('logo', 'tile', 'banner'):
+        if meta[prop] != '':
+            image = UploadedFile.objects(checksum=meta[prop]).first()
 
-        if logo:
-            logo.make_permanent()
-            mod.logo = logo.checksum
-
-    if meta['tile'] != '':
-        tile = UploadedFile.objects(checksum=meta['tile']).first()
-
-        if tile:
-            tile.make_permanent()
-            mod.tile = tile.checksum
+            if image:
+                image.make_permanent()
+                setattr(mod, prop, image.checksum)
 
     for name in meta['members']:
         member = User.objects(username=name).first()
@@ -73,19 +67,13 @@ def update_mod():
 
     mod.title = meta['title']
 
-    if mod.logo != meta['logo']:
-        logo = UploadedFile.objects(checksum=meta['logo']).first()
+    for prop in ('logo', 'tile', 'banner'):
+        if meta[prop] != '':
+            image = UploadedFile.objects(checksum=meta[prop]).first()
 
-        if logo:
-            logo.make_permanent()
-            mod.logo = logo.checksum
-
-    if mod.tile != meta['tile']:
-        tile = UploadedFile.objects(checksum=meta['tile']).first()
-
-        if tile:
-            tile.make_permanent()
-            mod.tile = tile.checksum
+            if image:
+                image.make_permanent()
+                setattr(mod, prop, image.checksum)
 
     members = meta['members']
     current = []
@@ -332,6 +320,7 @@ def generate_repo():
                     'first_release': mod.first_release.strftime('%Y-%m-%d'),
                     'last_update': None,
                     'cmdline': rel.cmdline,
+                    'mod_flag': rel.mod_flag,
                     'type': mod.type,
                     'packages': []
                 }
