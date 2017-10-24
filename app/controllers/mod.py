@@ -26,7 +26,7 @@ def create_mod():
               first_release=datetime.now(),
               members=[user])
 
-    for prop in ('logo', 'tile', 'banner'):
+    for prop in ('logo', 'tile'):
         if meta[prop] != '':
             image = UploadedFile.objects(checksum=meta[prop]).first()
 
@@ -67,7 +67,7 @@ def update_mod():
 
     mod.title = meta['title']
 
-    for prop in ('logo', 'tile', 'banner'):
+    for prop in ('logo', 'tile'):
         if meta[prop] != '':
             image = UploadedFile.objects(checksum=meta[prop]).first()
 
@@ -94,7 +94,7 @@ def update_mod():
     return jsonify(result=True)
 
 
-def _do_preflight():
+def _do_preflight(save=False):
     user = verify_token()
     if not user:
         abort(403)
@@ -136,6 +136,28 @@ def _do_preflight():
         if rv >= new_ver:
             return meta, mod, None, jsonify(result=False, reason='outdated version')
 
+    if meta['banner'] != '':
+        image = UploadedFile.objects(checksum=meta['banner']).first()
+
+        if image:
+            if save:
+                image.make_permanent()
+
+            setattr(release, 'banner', image.checksum)
+
+    for prop in ('screenshots', 'attachments'):
+        checked = []
+        for chk in meta[prop]:
+            image = UploadedFile.objects(checksum=chk).first()
+
+            if image:
+                if save:
+                    image.make_permanent()
+
+                checked.append(chk)
+
+        setattr(release, prop, checked)
+
     return meta, mod, release, None
 
 
@@ -150,7 +172,7 @@ def preflight_release():
 
 @app.route('/api/1/mod/release', methods={'POST'})
 def create_release():
-    meta, mod, release, error = _do_preflight()
+    meta, mod, release, error = _do_preflight(save=True)
     if error:
         return error
 
@@ -307,6 +329,7 @@ def generate_repo():
                 if rel.hidden:
                     continue
 
+                banner = UploadedFile.objects(checksum=rel.banner).first()
                 rmeta = {
                     'id': mod.mid,
                     'title': mod.title,
@@ -314,6 +337,9 @@ def generate_repo():
                     'description': rel.description,
                     'logo': logo and logo.get_url() or None,
                     'tile': tile and tile.get_url() or None,
+                    'banner': banner and banner.get_url() or None,
+                    'screenshots': [],
+                    'attachments': [],
                     'release_thread': rel.release_thread,
                     'videos': rel.videos,
                     'notes': rel.notes,
@@ -324,6 +350,12 @@ def generate_repo():
                     'type': mod.type,
                     'packages': []
                 }
+
+                for prop in ('screenshots', 'attachments'):
+                    for chk in getattr(rel, prop):
+                        image = UploadedFile.objects(checksum=chk).first()
+                        if image:
+                            rmeta[prop].append(image.get_url())
 
                 for pkg in rel.packages:
                     pmeta = {
