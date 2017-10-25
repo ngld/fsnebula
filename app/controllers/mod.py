@@ -94,7 +94,7 @@ def update_mod():
     return jsonify(result=True)
 
 
-def _do_preflight(save=False):
+def _do_preflight(save=False, ignore_duplicate=False):
     user = verify_token()
     if not user:
         abort(403)
@@ -108,7 +108,7 @@ def _do_preflight(save=False):
         abort(404)
 
     if user not in mod.members:
-        return meta, mod, None, jsonify(result=False, reason='unauthorized')
+        return meta, mod, None, 'unauthorized'
 
     release = ModRelease(
         version=meta['version'],
@@ -124,18 +124,18 @@ def _do_preflight(save=False):
         new_ver = semantic_version.Version(meta['version'])
     except ValueError:
         app.logger.exception('Invalid version "%s" provided during preflight check!' % meta['version'])
-        return meta, mod, None, jsonify(result=False, reason='invalid version')
+        return meta, mod, None, 'invalid version'
 
-    # We're going to allow uploads of older releases for now.
-    # for rel in mod.releases:
-    #     try:
-    #         rv = semantic_version.Version(rel.version)
-    #     except ValueError:
-    #         app.logger.exception('Mod %s has an invalid version %s!' % (mod.mid, rel.version))
-    #         continue
+    if not ignore_duplicate:
+        for rel in mod.releases:
+            try:
+                rv = semantic_version.Version(rel.version)
+            except ValueError:
+                app.logger.exception('Mod %s has an invalid version %s!' % (mod.mid, rel.version))
+                continue
 
-    #     if rv >= new_ver:
-    #         return meta, mod, None, jsonify(result=False, reason='outdated version')
+            if rv == new_ver:
+                return meta, mod, release, 'duplicated version'
 
     if meta['banner'] != '':
         image = UploadedFile.objects(checksum=meta['banner']).first()
@@ -165,17 +165,17 @@ def _do_preflight(save=False):
 @app.route('/api/1/mod/release/preflight', methods={'POST'})
 def preflight_release():
     meta, mod, rel, resp = _do_preflight()
-    if rel:
+    if resp is None:
         return jsonify(result=True)
     else:
-        return resp
+        return jsonify(result=False, reason=resp)
 
 
 @app.route('/api/1/mod/release', methods={'POST'})
 def create_release():
     meta, mod, release, error = _do_preflight(save=True)
     if error:
-        return error
+        return jsonify(result=False, reason=error)
 
     files = []
     for pmeta in meta['packages']:
@@ -183,7 +183,8 @@ def create_release():
             name=pmeta['name'],
             notes=pmeta['notes'],
             status=pmeta['status'],
-            environment=pmeta['environment'])
+            environment=pmeta['environment'],
+            is_vp=pmeta['is_vp'])
 
         for dmeta in pmeta['dependencies']:
             dep = Dependency(id=dmeta['id'], version=dmeta.get('version', None), packages=dmeta.get('packages', []))
@@ -227,6 +228,59 @@ def create_release():
             file.mod = mod
 
         file.make_permanent()
+
+    generate_repo()
+    return jsonify(result=True)
+
+
+@app.route('/api/1/mod/release/update', methods={'POST'})
+def update_release():
+    meta, mod, release, error = _do_preflight(save=True, ignore_duplicate=True)
+    if error:
+        return jsonify(result=False, reason=error)
+
+    old_rel = None
+    idx = -1
+    for i, rel in enumerate(mod.releases):
+        if rel.version == release.version:
+            old_rel = rel
+            idx = i
+            break
+
+    if not old_rel:
+        return jsonify(result=False, reason='release missing')
+
+    pkg_meta = {}
+    for pmeta in meta['packages']:
+        pkg_meta[pmeta['name']] = pmeta
+
+    for pkg in old_rel.packages:
+        if pkg.name not in pkg_meta:
+            continue
+
+        pmeta = pkg_meta[pkg.name]
+
+        # Update everything except for files and filelist
+        pkg.notes = pmeta['notes']
+        pkg.status = pmeta['status']
+        pkg.environment = pmeta['environment']
+        pkg.is_vp = pmeta['is_vp']
+        pkg.dependencies = []
+        pkg.executables = []
+
+        for dmeta in pmeta['dependencies']:
+            dep = Dependency(id=dmeta['id'], version=dmeta.get('version', None), packages=dmeta.get('packages', []))
+            pkg.dependencies.append(dep)
+
+        for emeta in pmeta['executables']:
+            exe = Executable(file=emeta['file'], label=emeta['label'])
+            pkg.executables.append(exe)
+
+        release.packages.append(pkg)
+
+    # Overwrite the old release with the new one
+    mod.releases[idx] = release
+    mod.save()
 
     generate_repo()
     return jsonify(result=True)
@@ -365,6 +419,7 @@ def generate_repo():
                         'status': pkg.status,
                         'dependencies': [],
                         'environment': pkg.environment,
+                        'is_vp': pkg.is_vp,
                         'executables': [],
                         'files': [],
                         'filelist': []

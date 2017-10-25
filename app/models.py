@@ -53,6 +53,7 @@ class Package(EmbeddedDocument):
     status = StringField(max_length=20)
     dependencies = EmbeddedDocumentListField(Dependency)
     environment = StringField(max_length=200)
+    is_vp = BooleanField(default=False)
     executables = EmbeddedDocumentListField(Executable)
     files = EmbeddedDocumentListField(ModArchive)
     filelist = EmbeddedDocumentListField(ModFile)
