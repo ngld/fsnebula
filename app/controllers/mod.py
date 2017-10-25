@@ -126,15 +126,16 @@ def _do_preflight(save=False):
         app.logger.exception('Invalid version "%s" provided during preflight check!' % meta['version'])
         return meta, mod, None, jsonify(result=False, reason='invalid version')
 
-    for rel in mod.releases:
-        try:
-            rv = semantic_version.Version(rel.version)
-        except ValueError:
-            app.logger.exception('Mod %s has an invalid version %s!' % (mod.mid, rel.version))
-            continue
+    # We're going to allow uploads of older releases for now.
+    # for rel in mod.releases:
+    #     try:
+    #         rv = semantic_version.Version(rel.version)
+    #     except ValueError:
+    #         app.logger.exception('Mod %s has an invalid version %s!' % (mod.mid, rel.version))
+    #         continue
 
-        if rv >= new_ver:
-            return meta, mod, None, jsonify(result=False, reason='outdated version')
+    #     if rv >= new_ver:
+    #         return meta, mod, None, jsonify(result=False, reason='outdated version')
 
     if meta['banner'] != '':
         image = UploadedFile.objects(checksum=meta['banner']).first()
