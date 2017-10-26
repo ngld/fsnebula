@@ -20,10 +20,20 @@ def create_mod():
     if not meta:
         abort(400)
 
+    first_rel = None
+    if meta.get('first_release'):
+        try:
+            first_rel = datetime.strptime(meta['first_release'], '%Y-%m-%d')
+        except ValueError:
+            pass
+
+    if not first_rel:
+        first_rel = datetime.now()
+
     mod = Mod(mid=meta['id'],
               title=meta['title'],
               type=meta['type'],
-              first_release=datetime.now(),
+              first_release=first_rel,
               members=[user])
 
     for prop in ('logo', 'tile'):
@@ -64,6 +74,12 @@ def update_mod():
 
     if user not in mod.members:
         return jsonify(result=False, reason='unauthorized')
+
+    if meta.get('first_release'):
+        try:
+            mod.first_release = datetime.strptime(meta['first_release'], '%Y-%m-%d')
+        except ValueError:
+            pass
 
     mod.title = meta['title']
 
