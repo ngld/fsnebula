@@ -33,6 +33,7 @@ def create_mod():
     mod = Mod(mid=meta['id'],
               title=meta['title'],
               type=meta['type'],
+              parent=meta.get('parent', 'FS2'),
               first_release=first_rel,
               members=[user])
 
@@ -392,6 +393,7 @@ def generate_repo():
                     'id': mod.mid,
                     'title': mod.title,
                     'version': rel.version,
+                    'parent': mod.parent,
                     'description': rel.description,
                     'logo': logo and logo.get_url() or None,
                     'tile': tile and tile.get_url() or None,

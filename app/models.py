@@ -80,6 +80,7 @@ class Mod(Document):
     mid = StringField(required=True, max_length=100, primary_key=True)
     title = StringField(required=True, max_length=200, unique=True)
     type = StringField(max_length=10)
+    parent = StringField(max_length=100)
     logo = StringField(max_length=128)
     tile = StringField(max_length=128)
     first_release = DateTimeField()
