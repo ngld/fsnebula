@@ -415,7 +415,7 @@ def generate_repo():
                     'videos': rel.videos,
                     'notes': rel.notes,
                     'first_release': mod.first_release.strftime('%Y-%m-%d'),
-                    'last_update': None,
+                    'last_update': rel.last_update.strftime('%Y-%m-%d'),
                     'cmdline': rel.cmdline,
                     'mod_flag': rel.mod_flag,
                     'type': mod.type,
