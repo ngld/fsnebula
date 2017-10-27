@@ -91,21 +91,6 @@ def update_mod():
                 image.make_permanent()
                 setattr(mod, prop, image.checksum)
 
-    members = meta['members']
-    current = []
-    for i, obj in enumerate(reversed(mod.members)):
-        if obj.username not in members:
-            del mod.members[i]
-        else:
-            current.append(obj.username)
-
-    for name in members:
-        if name not in current:
-            obj = User.objects(username=name).first()
-
-            if obj:
-                mod.members.append(obj)
-
     mod.save()
     return jsonify(result=True)
 
