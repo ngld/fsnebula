@@ -180,6 +180,7 @@ def create_release():
         return jsonify(result=False, reason=error)
 
     files = []
+    user = None
     for pmeta in meta['packages']:
         pkg = Package(
             name=pmeta['name'],
@@ -206,11 +207,20 @@ def create_release():
                                  checksum=ameta['checksum'][1],
                                  filesize=ameta['filesize'])
 
-            file = UploadedFile.objects(checksum=archive.checksum).first()
-            if not file:
-                return jsonify(result=False, reason='archive missing', archive=ameta['filename'])
+            if 'urls' in ameta:
+                if not user:
+                    user = verify_token()
+                    if user.username not in app.config['URLS_FOR']:
+                        return jsonify(result=False, reason='urls unauthorized')
 
-            files.append(file)
+                archive.urls = ameta['urls']
+            else:
+                file = UploadedFile.objects(checksum=archive.checksum).first()
+                if not file:
+                    return jsonify(result=False, reason='archive missing', archive=ameta['filename'])
+
+                files.append(file)
+
             pkg.files.append(archive)
 
         for fmeta in pmeta['filelist']:
@@ -445,15 +455,20 @@ def generate_repo():
                         })
 
                     for archive in pkg.files:
-                        arfile = UploadedFile.objects(checksum=archive.checksum).first()
-
-                        pmeta['files'].append({
+                        file = {
                             'filename': archive.filename,
                             'dest': archive.dest,
                             'checksum': ('sha256', archive.checksum),
                             'filesize': archive.filesize,
-                            'urls': [arfile.get_url()]
-                        })
+                        }
+
+                        if not archive.urls:
+                            arfile = UploadedFile.objects(checksum=archive.checksum).first()
+                            file['urls'] = [arfile.get_url()]
+                        else:
+                            file['urls'] = archive.urls
+
+                        pmeta['files'].append(file)
 
                     for file in pkg.filelist:
                         pmeta['filelist'].append({

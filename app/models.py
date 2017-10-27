@@ -38,6 +38,7 @@ class ModArchive(EmbeddedDocument):
     dest = StringField(required=True, max_length=120)
     checksum = StringField(max_length=128)
     filesize = IntField()
+    urls = ListField(StringField(max_length=400))
 
 
 class ModFile(EmbeddedDocument):
