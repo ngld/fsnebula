@@ -200,6 +200,7 @@ def create_release():
             notes=pmeta['notes'],
             status=pmeta['status'],
             environment=pmeta['environment'],
+            folder=pmeta.get('folder'),
             is_vp=pmeta['is_vp'])
 
         for dmeta in pmeta['dependencies']:
@@ -280,6 +281,7 @@ def update_release():
         pkg.notes = pmeta['notes']
         pkg.status = pmeta['status']
         pkg.environment = pmeta['environment']
+        pkg.folder = pmeta.get('folder', None)
         pkg.is_vp = pmeta['is_vp']
         pkg.dependencies = []
         pkg.executables = []
@@ -435,6 +437,7 @@ def generate_repo():
                         'status': pkg.status,
                         'dependencies': [],
                         'environment': pkg.environment,
+                        'folder': pkg.folder,
                         'is_vp': pkg.is_vp,
                         'executables': [],
                         'files': [],
