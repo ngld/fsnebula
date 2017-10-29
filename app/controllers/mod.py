@@ -4,6 +4,7 @@ import semantic_version
 from datetime import datetime
 from email.message import EmailMessage
 from flask import request, jsonify, abort
+from mongoengine.errors import ValidationError
 
 from .. import app
 from ..helpers import verify_token, send_mail
@@ -44,11 +45,6 @@ def create_mod():
             if image:
                 image.make_permanent()
                 setattr(mod, prop, image.checksum)
-
-    for name in meta['members']:
-        member = User.objects(username=name).first()
-        if member:
-            mod.members.append(member)
 
     try:
         mod.save(True)
@@ -114,13 +110,16 @@ def _do_preflight(save=False, ignore_duplicate=False):
 
     release = ModRelease(
         version=meta['version'],
-        description=meta['description'],
-        release_thread=meta['release_thread'],
-        videos=meta['videos'],
-        notes=meta['notes'],
+        description=meta.get('description', ''),
+        release_thread=meta.get('release_thread', None),
+        videos=meta.get('videos', []),
+        notes=meta.get('notes', ''),
         last_update=datetime.now(),
-        cmdline=meta['cmdline'],
-        mod_flag=meta['mod_flag'])
+        cmdline=meta.get('cmdline', ''),
+        mod_flag=meta.get('mod_flag', ''))
+
+    if mod.type == 'engine':
+        release.stability = meta.get('stability', 'stable')
 
     try:
         new_ver = semantic_version.Version(meta['version'])
@@ -139,7 +138,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
             if rv == new_ver:
                 return meta, mod, release, 'duplicated version'
 
-    if meta['banner'] != '':
+    if meta.get('banner', '') != '':
         image = UploadedFile.objects(checksum=meta['banner']).first()
 
         if image:
@@ -150,7 +149,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
 
     for prop in ('screenshots', 'attachments'):
         checked = []
-        for chk in meta[prop]:
+        for chk in meta.get(prop, []):
             image = UploadedFile.objects(checksum=chk).first()
 
             if image:
@@ -184,17 +183,17 @@ def create_release():
     for pmeta in meta['packages']:
         pkg = Package(
             name=pmeta['name'],
-            notes=pmeta['notes'],
-            status=pmeta['status'],
-            environment=pmeta['environment'],
+            notes=pmeta.get('notes', ''),
+            status=pmeta.get('status', 'recommended'),
+            environment=pmeta.get('environment', ''),
             folder=pmeta.get('folder'),
-            is_vp=pmeta['is_vp'])
+            is_vp=pmeta.get('is_vp', False))
 
-        for dmeta in pmeta['dependencies']:
+        for dmeta in pmeta.get('dependencies', []):
             dep = Dependency(id=dmeta['id'], version=dmeta.get('version', None), packages=dmeta.get('packages', []))
             pkg.dependencies.append(dep)
 
-        for emeta in pmeta['executables']:
+        for emeta in pmeta.get('executables', []):
             exe = Executable(file=emeta['file'], label=emeta['label'])
             pkg.executables.append(exe)
 
@@ -234,7 +233,10 @@ def create_release():
         release.packages.append(pkg)
 
     mod.releases.append(release)
-    mod.save()
+    try:
+        mod.save()
+    except ValidationError as exc:
+        return jsonify(result=False, reason=str(exc))
 
     for file in files:
         if not file.mod:
@@ -403,6 +405,7 @@ def generate_repo():
                     'id': mod.mid,
                     'title': mod.title,
                     'version': rel.version,
+                    'stability': rel.stability if mod.type == 'engine' else None,
                     'parent': mod.parent,
                     'description': rel.description,
                     'logo': logo and logo.get_url() or None,

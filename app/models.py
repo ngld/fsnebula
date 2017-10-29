@@ -42,7 +42,7 @@ class ModArchive(EmbeddedDocument):
 
 
 class ModFile(EmbeddedDocument):
-    filename = StringField(required=True, max_length=120)
+    filename = StringField(required=True, max_length=500)
     archive = StringField(required=True, max_length=120)
     orig_name = StringField(required=True, max_length=255)
     checksum = ListField(StringField(max_length=128))
@@ -63,6 +63,7 @@ class Package(EmbeddedDocument):
 
 class ModRelease(EmbeddedDocument):
     version = StringField(required=True, max_length=32)
+    stability = StringField(max_length=60)
     description = StringField(max_length=10240)
     release_thread = StringField(max_length=300)
     banner = StringField(max_length=128)
