@@ -87,6 +87,8 @@ def update_mod():
             if image:
                 image.make_permanent()
                 setattr(mod, prop, image.checksum)
+        else:
+            setattr(mod, prop, None)
 
     mod.save()
     return jsonify(result=True)
@@ -138,25 +140,32 @@ def _do_preflight(save=False, ignore_duplicate=False):
             if rv == new_ver:
                 return meta, mod, release, 'duplicated version'
 
+    img_url_allow = user.username in app.config['URLS_FOR']
     if meta.get('banner', '') != '':
-        image = UploadedFile.objects(checksum=meta['banner']).first()
-
-        if image:
-            if save:
-                image.make_permanent()
-
-            setattr(release, 'banner', image.checksum)
-
-    for prop in ('screenshots', 'attachments'):
-        checked = []
-        for chk in meta.get(prop, []):
-            image = UploadedFile.objects(checksum=chk).first()
+        if meta['banner'].startswith('http') and img_url_allow:
+            release.banner = meta['banner']
+        else:
+            image = UploadedFile.objects(checksum=meta['banner']).first()
 
             if image:
                 if save:
                     image.make_permanent()
 
+                release,banner = image.checksum
+
+    for prop in ('screenshots', 'attachments'):
+        checked = []
+        for chk in meta.get(prop, []):
+            if chk.startswith('http') and img_url_allow:
                 checked.append(chk)
+            else:
+                image = UploadedFile.objects(checksum=chk).first()
+
+                if image:
+                    if save:
+                        image.make_permanent()
+
+                    checked.append(chk)
 
         setattr(release, prop, checked)
 
@@ -400,7 +409,13 @@ def generate_repo():
                 if rel.hidden:
                     continue
 
-                banner = UploadedFile.objects(checksum=rel.banner).first()
+                if '://' in rel.banner:
+                    banner = rel.banner
+                else:
+                    banner = UploadedFile.objects(checksum=rel.banner).first()
+                    if banner:
+                        banner = banner.get_url()
+
                 rmeta = {
                     'id': mod.mid,
                     'title': mod.title,
@@ -410,7 +425,7 @@ def generate_repo():
                     'description': rel.description,
                     'logo': logo and logo.get_url() or None,
                     'tile': tile and tile.get_url() or None,
-                    'banner': banner and banner.get_url() or None,
+                    'banner': banner,
                     'screenshots': [],
                     'attachments': [],
                     'release_thread': rel.release_thread,
@@ -426,9 +441,12 @@ def generate_repo():
 
                 for prop in ('screenshots', 'attachments'):
                     for chk in getattr(rel, prop):
-                        image = UploadedFile.objects(checksum=chk).first()
-                        if image:
-                            rmeta[prop].append(image.get_url())
+                        if '://' in chk:
+                            rmeta[prop].append(chk)
+                        else:
+                            image = UploadedFile.objects(checksum=chk).first()
+                            if image:
+                                rmeta[prop].append(image.get_url())
 
                 for pkg in rel.packages:
                     pmeta = {
