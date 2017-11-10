@@ -151,7 +151,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
                 if save:
                     image.make_permanent()
 
-                release,banner = image.checksum
+                release.banner = image.checksum
 
     for prop in ('screenshots', 'attachments'):
         checked = []
