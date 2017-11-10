@@ -4,7 +4,7 @@ import semantic_version
 import requests
 from datetime import datetime
 from email.message import EmailMessage
-from flask import request, jsonify, abort, url_for
+from flask import request, jsonify, abort, url_for, redirect
 from mongoengine.errors import ValidationError
 
 from .. import app
@@ -264,13 +264,13 @@ def create_release():
             if not img:
                 img = None
 
-            # TODO: Set 'url' on the embed object once we have a web interface
             requests.post(app.config['DISCORD_WEBHOOK'], json={
                 'username': app.config['DISCORD_NICK'],
                 'avatar_url': url_for('storage', filename='avatar.png', _external=True),
+                'url': url_for('view_mod', mid=mod.mid, _external=True),
                 'embeds': [{
                     'title': 'Mod %s %s released!' % (mod.title, release.version),
-                    'description': 'Now available on Knossos',
+                    'description': 'The above link will only work if you have Knossos installed',
                     'image': img
                 }]
             })
@@ -409,6 +409,11 @@ def rebuild_repo():
     generate_repo()
 
     return jsonify(result=True)
+
+
+@app.route('/mod/<mid>', methods={'GET'})
+def view_mod(mid):
+    return redirect('fso://open/' + mid)
 
 
 def generate_repo():
