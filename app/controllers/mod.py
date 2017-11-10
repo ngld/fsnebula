@@ -277,8 +277,8 @@ def create_release():
             requests.post(app.config['DISCORD_WEBHOOK'], json={
                 'username': app.config['DISCORD_NICK'],
                 'avatar_url': url_for('storage', filename='avatar.png', _external=True),
-                'url': url_for('view_mod', mid=mod.mid, _external=True),
                 'embeds': [{
+                    'url': url_for('view_mod', mid=mod.mid, _external=True),
                     'title': 'Mod %s %s released!' % (mod.title, release.version),
                     'description': 'The above link will only work if you have Knossos installed',
                     'image': img
