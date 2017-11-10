@@ -12,6 +12,16 @@ from ..helpers import verify_token, send_mail
 from ..models import User, Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile
 
 
+@app.route('/api/1/mod/check_id', methods={'POST'})
+def check_mod_id():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mod = Mod.objects(mid=request.form['id']).first()
+    return jsonify(result=not mod)
+
+
 @app.route('/api/1/mod/create', methods={'POST'})
 def create_mod():
     user = verify_token()

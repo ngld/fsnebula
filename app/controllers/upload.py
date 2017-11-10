@@ -1,6 +1,7 @@
 import os.path
 import time
 import magic
+from io import SEEK_END
 from flask import request, jsonify, abort
 
 from .. import app
@@ -19,7 +20,10 @@ def check_uploaded():
     else:
         file = UploadedFile.objects(checksum=request.form['checksum']).first()
 
-    return jsonify(result=bool(file))
+    if file:
+        return jsonify(result=True, checksum=file.checksum, filesize=file.filesize)
+    else:
+        return jsonify(result=False)
 
 
 @app.route('/api/1/upload/file', methods={'POST'})
@@ -41,9 +45,11 @@ def upload_file():
     if mime in app.config['MIME_BLACKLIST']:
         return jsonify(result=False, reason='invalid mime')
 
+    file.seek(0, SEEK_END)
     record = UploadedFile(expires=time.time() + 24 * 60 * 60,
                           checksum=checksum,
-                          content_checksum=request.form.get('content_checksum'))
+                          content_checksum=request.form.get('content_checksum'),
+                          filesize=file.tell())
 
     if mime in ('image/jpg', 'image/jpeg'):
         record.file_ext = 'jpg'
