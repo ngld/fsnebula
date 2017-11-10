@@ -1,9 +1,10 @@
 import os.path
 import json
 import semantic_version
+import requests
 from datetime import datetime
 from email.message import EmailMessage
-from flask import request, jsonify, abort
+from flask import request, jsonify, abort, url_for
 from mongoengine.errors import ValidationError
 
 from .. import app
@@ -108,7 +109,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
         abort(404)
 
     if user not in mod.members:
-        return meta, mod, None, 'unauthorized'
+        return meta, mod, None, user, 'unauthorized'
 
     release = ModRelease(
         version=meta['version'],
@@ -127,7 +128,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
         new_ver = semantic_version.Version(meta['version'])
     except ValueError:
         app.logger.exception('Invalid version "%s" provided during preflight check!' % meta['version'])
-        return meta, mod, None, 'invalid version'
+        return meta, mod, None, user, 'invalid version'
 
     if not ignore_duplicate:
         for rel in mod.releases:
@@ -138,7 +139,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
                 continue
 
             if rv == new_ver:
-                return meta, mod, release, 'duplicated version'
+                return meta, mod, release, user, 'duplicated version'
 
     img_url_allow = user.username in app.config['URLS_FOR']
     if meta.get('banner', '') != '':
@@ -169,12 +170,12 @@ def _do_preflight(save=False, ignore_duplicate=False):
 
         setattr(release, prop, checked)
 
-    return meta, mod, release, None
+    return meta, mod, release, user, None
 
 
 @app.route('/api/1/mod/release/preflight', methods={'POST'})
 def preflight_release():
-    meta, mod, rel, resp = _do_preflight()
+    meta, mod, rel, user, resp = _do_preflight()
     if resp is None:
         return jsonify(result=True)
     else:
@@ -183,12 +184,11 @@ def preflight_release():
 
 @app.route('/api/1/mod/release', methods={'POST'})
 def create_release():
-    meta, mod, release, error = _do_preflight(save=True)
+    meta, mod, release, user, error = _do_preflight(save=True)
     if error:
         return jsonify(result=False, reason=error)
 
     files = []
-    user = None
     for pmeta in meta['packages']:
         pkg = Package(
             name=pmeta['name'],
@@ -216,10 +216,8 @@ def create_release():
                                  filesize=ameta['filesize'])
 
             if 'urls' in ameta:
-                if not user:
-                    user = verify_token()
-                    if user.username not in app.config['URLS_FOR']:
-                        return jsonify(result=False, reason='urls unauthorized')
+                if user.username not in app.config['URLS_FOR']:
+                    return jsonify(result=False, reason='urls unauthorized')
 
                 archive.urls = ameta['urls']
             else:
@@ -254,6 +252,31 @@ def create_release():
         file.make_permanent()
 
     generate_repo()
+
+    if app.config['DISCORD_WEBHOOK']:
+        try:
+            img = release.banner or mod.logo
+            if img:
+                img = UploadedFile.objects(checksum=img).first()
+                if img:
+                    img = {'url': img.get_url()}
+
+            if not img:
+                img = None
+
+            # TODO: Set 'url' on the embed object once we have a web interface
+            requests.post(app.config['DISCORD_WEBHOOK'], json={
+                'username': app.config['DISCORD_NICK'],
+                'avatar_url': url_for('storage', filename='avatar.png', _external=True),
+                'embeds': [{
+                    'title': 'Mod %s %s released!' % (mod.title, release.version),
+                    'description': 'Now available on Knossos',
+                    'image': img
+                }]
+            })
+        except Exception:
+            app.logger.exception('Failed to execute Discord webhook!')
+
     return jsonify(result=True)
 
 
@@ -409,7 +432,7 @@ def generate_repo():
                 if rel.hidden:
                     continue
 
-                if '://' in rel.banner:
+                if rel.banner and '://' in rel.banner:
                     banner = rel.banner
                 else:
                     banner = UploadedFile.objects(checksum=rel.banner).first()
