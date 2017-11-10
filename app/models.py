@@ -94,8 +94,15 @@ class UploadedFile(Document):
     filename = StringField(required=True, max_length=200)
     file_ext = StringField(max_length=10)
     checksum = StringField(primary_key=True, max_length=128)
+    content_checksum = StringField(max_length=128)
     mod = ReferenceField(Mod)
     expires = IntField()
+
+    meta = {
+        'indexes': [
+            'content_checksum'
+        ]
+    }
 
     def gen_filename(self):
         if self.expires != -1:

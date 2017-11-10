@@ -14,7 +14,11 @@ def check_uploaded():
     if not user:
         abort(403)
 
-    file = UploadedFile.objects(checksum=request.form['checksum']).first()
+    if 'content_checksum' in request.form:
+        file = UploadedFile.objects(content_checksum=request.form['content_checksum']).first()
+    else:
+        file = UploadedFile.objects(checksum=request.form['checksum']).first()
+
     return jsonify(result=bool(file))
 
 
@@ -38,7 +42,8 @@ def upload_file():
         return jsonify(result=False, reason='invalid mime')
 
     record = UploadedFile(expires=time.time() + 24 * 60 * 60,
-                          checksum=checksum)
+                          checksum=checksum,
+                          content_checksum=request.form.get('content_checksum'))
 
     if mime in ('image/jpg', 'image/jpeg'):
         record.file_ext = 'jpg'
