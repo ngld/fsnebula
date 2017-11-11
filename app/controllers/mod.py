@@ -98,6 +98,8 @@ def update_mod():
             if image:
                 image.make_permanent()
                 setattr(mod, prop, image.checksum)
+            else:
+                setattr(mod, prop, None)
         else:
             setattr(mod, prop, None)
 
@@ -280,7 +282,7 @@ def create_release():
                 'embeds': [{
                     'url': url_for('view_mod', mid=mod.mid, _external=True),
                     'title': 'Mod %s %s released!' % (mod.title, release.version),
-                    'description': 'The above link will only work if you have Knossos installed',
+                    'description': 'The above link will only work if you have [Knossos](https://github.com/ngld/knossos/releases) 0.6.1 or later installed',
                     'image': img
                 }]
             })
@@ -292,7 +294,7 @@ def create_release():
 
 @app.route('/api/1/mod/release/update', methods={'POST'})
 def update_release():
-    meta, mod, release, error = _do_preflight(save=True, ignore_duplicate=True)
+    meta, mod, release, user, error = _do_preflight(save=True, ignore_duplicate=True)
     if error:
         return jsonify(result=False, reason=error)
 
