@@ -107,6 +107,65 @@ def update_mod():
     return jsonify(result=True)
 
 
+@app.route('/api/1/mod/create_or_update', methods={'POST'})
+def create_or_update_mod():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    meta = requests.get_json()
+
+    if not meta:
+        abort(400)
+
+    first_rel = None
+    if meta.get('first_release'):
+        try:
+            first_rel = datetime.strptime(meta['first_release'], '%Y-%m-%d')
+        except ValueError:
+            pass
+
+    mod = Mod.objects(mid=meta['id']).first()
+    if not mod:
+        if not first_rel:
+            first_rel = datetime.now()
+
+        mod = Mod(mid=meta['id'],
+                  title=meta['title'],
+                  type=meta['type'],
+                  parent=meta.get('parent', 'FS2'),
+                  first_release=first_rel,
+                  members=[user])
+    else:
+        if user not in mod.members:
+            return jsonify(result=False, reason='unauthorized')
+
+        if first_rel:
+            mod.first_release = first_rel
+
+        mod.title = meta['title']
+
+    for prop in ('logo', 'tile'):
+        if meta[prop] != '':
+            image = UploadedFile.objects(checksum=meta[prop]).first()
+
+            if image:
+                image.make_permanent()
+                setattr(mod, prop, image.checksum)
+            else:
+                setattr(mod, prop, None)
+        else:
+            setattr(mod, prop, None)
+
+    try:
+        mod.save()
+    except ValueError:
+        app.logger.exception('Failed to store new mod!')
+        return jsonify(result=False)
+
+    return jsonify(result=True)
+
+
 def _do_preflight(save=False, ignore_duplicate=False):
     user = verify_token()
     if not user:
@@ -276,12 +335,18 @@ def create_release():
             if not img:
                 img = None
 
+            type_names = {
+                'mod': 'Mod',
+                'engine': 'Build',
+                'tc': 'Total Conversion'
+            }
+
             requests.post(app.config['DISCORD_WEBHOOK'], json={
                 'username': app.config['DISCORD_NICK'],
                 'avatar_url': url_for('storage', filename='avatar.png', _external=True),
                 'embeds': [{
                     'url': url_for('view_mod', mid=mod.mid, _external=True),
-                    'title': 'Mod %s %s released!' % (mod.title, release.version),
+                    'title': '%s %s %s released!' % (type_names.get(mod.type, ''), mod.title, release.version),
                     'description': 'The above link will only work if you have [Knossos](https://github.com/ngld/knossos/releases) 0.6.1 or later installed',
                     'image': img
                 }]
