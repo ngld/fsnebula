@@ -80,7 +80,7 @@ class ModRelease(EmbeddedDocument):
 
 class Mod(Document):
     mid = StringField(required=True, max_length=100, primary_key=True)
-    title = StringField(required=True, max_length=200, unique=True)
+    title = StringField(required=True, max_length=200)
     type = StringField(max_length=10)
     parent = StringField(max_length=100)
     logo = StringField(max_length=128)
@@ -135,3 +135,12 @@ class UploadedFile(Document):
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.move(os.path.join(app.config['FILE_STORAGE'], old_path), dest_path)
         self.save()
+
+
+class Log(Document):
+    uploaded = DateTimeField()
+    content = StringField()
+
+    meta = {
+        'indexes': ['$content']
+    }

@@ -9,7 +9,7 @@ from mongoengine.errors import ValidationError
 
 from .. import app
 from ..helpers import verify_token, send_mail
-from ..models import User, Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile
+from ..models import Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile
 
 
 @app.route('/api/1/mod/check_id', methods={'POST'})
@@ -213,7 +213,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
                 return meta, mod, release, user, 'duplicated version'
 
     img_url_allow = user.username in app.config['URLS_FOR']
-    if meta.get('banner', '') != '':
+    if meta.get('banner'):
         if meta['banner'].startswith('http') and img_url_allow:
             release.banner = meta['banner']
         else:
