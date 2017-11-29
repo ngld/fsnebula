@@ -1,0 +1,30 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[dev-packages]
+
+[packages]
+
+"argon2-cffi" = "*"
+certifi = "*"
+cffi = "*"
+chardet = "*"
+click = "*"
+flask = "*"
+idna = "*"
+itsdangerous = "*"
+"jinja2" = "*"
+markupsafe = "*"
+mongoengine = "*"
+passlib = "*"
+pycparser = "*"
+pyjwt = "*"
+pymongo = "*"
+"python-magic" = "*"
+requests = "*"
+"semantic-version" = "*"
+"urllib3" = "*"
+werkzeug = "*"
+pygments = "*"

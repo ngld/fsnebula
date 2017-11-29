@@ -1,9 +1,11 @@
+import pygments.formatters
 from datetime import datetime
 from flask import request, jsonify, abort, render_template, url_for
 
 from .. import app
 from ..helpers import verify_token
 from ..models import Log
+from ..log_lexer import FsoLogLexer
 
 
 @app.route('/api/1/log/upload', methods={'POST'})
@@ -28,7 +30,12 @@ def view_log(log_id):
     if not log:
         abort(404)
 
-    return render_template('log.html', log=log)
+    lexer = FsoLogLexer()
+    formatter = pygments.formatters.get_formatter_by_name('html',
+        linenos='table', lineanchors=True, anchorlinenos=True)
+    content = pygments.highlight(log.content, lexer, formatter)
+
+    return render_template('log.html', uploaded=log.uploaded, content=content, css=formatter.get_style_defs())
 
 
 @app.route('/log/search', methods={'GET', 'POST'})

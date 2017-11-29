@@ -5,4 +5,4 @@ cd "$(dirname "$0")"
 export FLASK_APP=app
 export NEBULA_SETTINGS=../dev.cfg
 
-exec ./py-env/bin/python -mflask run "$@"
+exec pipenv run python -mflask run "$@"
