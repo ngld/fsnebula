@@ -4,7 +4,7 @@ import semantic_version
 import requests
 from datetime import datetime
 from email.message import EmailMessage
-from flask import request, jsonify, abort, url_for, redirect
+from flask import request, jsonify, abort, url_for, redirect, render_template
 from mongoengine.errors import ValidationError
 
 from .. import app
@@ -343,11 +343,10 @@ def create_release():
 
             requests.post(app.config['DISCORD_WEBHOOK'], json={
                 'username': app.config['DISCORD_NICK'],
-                'avatar_url': url_for('storage', filename='avatar.png', _external=True),
+                'avatar_url': url_for('static', filename='avatar.png', _external=True),
                 'embeds': [{
                     'url': url_for('view_mod', mid=mod.mid, _external=True),
                     'title': '%s %s %s released!' % (type_names.get(mod.type, ''), mod.title, release.version),
-                    'description': 'The above link will only work if you have [Knossos](https://github.com/ngld/knossos/releases) 0.6.1 or later installed',
                     'image': img
                 }]
             })
@@ -490,7 +489,24 @@ def rebuild_repo():
 
 @app.route('/mod/<mid>', methods={'GET'})
 def view_mod(mid):
-    return redirect('fso://open/' + mid)
+    mod = Mod.objects(mid=mid).first()
+    if not mod or len(mod.releases) < 0:
+        abort(404)
+
+    rel = mod.releases[-1]
+    banner = None
+
+    if rel.banner:
+        b = UploadedFile.objects(checksum=rel.banner).first()
+        if b:
+            banner = b.get_url()
+
+    return render_template('mod_install.html.j2', mod={
+        'id': mod.mid,
+        'title': mod.title,
+        'version': rel.version,
+        'banner': banner
+    })
 
 
 def generate_repo():

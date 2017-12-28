@@ -1,0 +1,27 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Log{% endblock %}
+
+{% block header %}
+	<style type="text/css">
+		{{ css  }}
+
+		pre {
+			border-radius: 0;
+		}
+
+		.linenodiv pre {
+			border-right: 0;
+		}
+	</style>
+{% endblock %}
+
+{% block body %}
+	<h1>Log</h1>
+
+	<p>
+		Uploaded on: {{ uploaded.strftime('%d.%m.%Y') }}
+	</p>
+
+	{{ content|safe }}
+{% endblock %}

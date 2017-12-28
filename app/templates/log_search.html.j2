@@ -1,0 +1,22 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Log Search{% endblock %}
+
+{% block body %}
+	<h1>Log Search</h1>
+
+	<form class="form" method="post">
+		<input type="text" class="form-control" name="query" placeholder="Please enter a query and press enter">
+	</form>
+
+	<hr>
+
+	<ul>
+		{% for item in results %}
+			<li>
+				<a href="{{ item.link }}">{{ item.uploaded.strftime('%d.%m.%Y') }}</a><br>
+				<pre>{{ item.teaser }}</pre>
+			</li>
+		{% endfor %}
+	</ul>
+{% endblock %}

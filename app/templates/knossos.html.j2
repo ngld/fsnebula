@@ -1,0 +1,53 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Knossos{% endblock %}
+
+{% block body %}
+    <h1>Knossos <small>Installation instructions</small></h1>
+
+    <a href="https://github.com/ngld/knossos">GitHub</a> | <a href="https://www.hard-light.net/forums/index.php?topic=94068.0">HLP Thread</a>
+
+    <h2>Windows</h2>
+    <p>
+        Download <a href="{{ url_for('knossos_dl', base='Knossos', ext='exe') }}">this installer</a> (ca. 37 MB) and run it.
+    </p>
+    <p>
+        If you're using Windows 8 or later the Windows SmartScreen Filter might complain that it doesn't recognize this file because only a few people have downloaded it, yet. To start the installer, click on "More info" and then on "Run anyway".
+    </p>
+    <p>
+        <strong>Update instructions:</strong> After you launch Knossos, it should ask you if you want to update. Just answer "yes" and wait for the process to finish.
+    </p>            
+
+    <h2>Ubuntu</h2>    
+    <p>
+        Run these commands in a terminal to install Knossos:
+        <pre>
+sudo add-apt-repository ppa:ngld/knossos
+sudo apt-get update
+sudo apt-get install knossos<!--
+        --></pre>
+    </p>
+    <p>
+        <strong>Update instructions:</strong> The knossos package can be updated like any other package on your system.
+    </p>
+
+    <h2>Arch Linux</h2>
+    <p>
+        Install the <a href="https://aur.archlinux.org/packages/fs2-knossos/">fs2-knossos</a> package from the AUR.
+        <br>
+        If you don't know how to install AUR packages, the Arch Wiki <a href="https://wiki.archlinux.org/index.php/AUR_User_Guidelines#Installing_packages">
+        has a nice manual</a>.
+    </p>
+    <p>
+       <strong>Update instructions:</strong> Update the fs2-knossos package with an <a href="https://wiki.archlinux.org/index.php/AUR_helpers">AUR helper</a> of your choice or build and install the package again.
+    </p>
+
+    <h2>Mac OS X</h2>
+    <p>
+        Download this <a href="{{ url_for('knossos_dl', base='Knossos', ext='dmg') }}">DMG file</a>, (ca. 51 MB) open it and drag the Knossos icon on the Applications icon.
+        Now Knossos should appear in your list of installed applications and can be run like any other installed program.
+    </p>
+    <p>
+        <strong>Update instructions:</strong> Repeat the installation instructions again. When a dialog asks you if you want to replace Knossos, click "yes".
+    </p>
+{% endblock %}

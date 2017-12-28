@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+    <head>
+        <title>{% block title %}Secret{% endblock %} - FSNebula</title>
+        <meta charset="utf8">
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+        <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+        {% block header %}{% endblock %}
+    </head>
+    <body>
+        <nav class="navbar navbar-default">
+            <div class="container">
+            
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#fsn-nav-collapse" aria-expanded="false">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="#"><img src="{{ url_for('static', filename='avatar.png') }}" alt="FSNebula Logo"></a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="fsn-nav-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/">Home</a></li>
+                        <li><a href="/knossos/">Knossos</a></li>
+                        <li><a href="/log/search">Logs</a></li>
+                        <li><a href="https://dev.tproxy.de/impressum.html">Imprint / Legal</a></li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            {% block body %}{% endblock %}
+        </div>
+
+        <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha256-k2WSCIexGzOj3Euiig+TlR8gA0EmPjuc79OEeY5L45g=" crossorigin="anonymous"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    </body>
+</html>

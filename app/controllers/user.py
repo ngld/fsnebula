@@ -69,9 +69,9 @@ def recover_password(username, token):
             user.password = hash_password(request.form['new_password'])
             user.save()
 
-            return render_template('reset.html', success=True)
+            return render_template('reset.html.j2', success=True)
 
-    return render_template('reset.html', success=False, msg=msg)
+    return render_template('reset.html.j2', success=False, msg=msg)
 
 
 @app.route('/api/1/reset_password', methods={'POST'})

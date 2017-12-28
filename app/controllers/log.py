@@ -35,7 +35,7 @@ def view_log(log_id):
         linenos='table', lineanchors=True, anchorlinenos=True)
     content = pygments.highlight(log.content, lexer, formatter)
 
-    return render_template('log.html', uploaded=log.uploaded, content=content, css=formatter.get_style_defs())
+    return render_template('log.html.j2', uploaded=log.uploaded, content=content, css=formatter.get_style_defs())
 
 
 @app.route('/log/search', methods={'GET', 'POST'})
@@ -61,4 +61,4 @@ def search_logs():
                 'teaser': item.content[start:end]
             })
 
-    return render_template('log_search.html', results=results)
+    return render_template('log_search.html.j2', results=results)

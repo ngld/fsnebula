@@ -120,7 +120,7 @@ class UploadedFile(Document):
             raise ValueError()
 
         # Strip off the "public/" prefix
-        return url_for('storage', filename=self.filename[7:], _external=True)
+        return app.config['DL_SERVER'] + '/' + self.filename[7:]
 
     def make_permanent(self):
         if self.expires == -1:
