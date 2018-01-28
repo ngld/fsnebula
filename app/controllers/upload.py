@@ -21,7 +21,7 @@ def check_uploaded():
         file = UploadedFile.objects(checksum=request.form['checksum']).first()
 
     if file:
-        return jsonify(result=True, checksum=file.checksum, filesize=file.filesize)
+        return jsonify(result=True, checksum=file.checksum, filesize=file.filesize, vp_checksum=file.vp_checksum)
     else:
         return jsonify(result=False)
 
@@ -49,6 +49,7 @@ def upload_file():
     record = UploadedFile(expires=time.time() + 24 * 60 * 60,
                           checksum=checksum,
                           content_checksum=request.form.get('content_checksum'),
+                          vp_checksum=request.form.get('vp_checksum'),
                           filesize=file.tell())
 
     if mime in ('image/jpg', 'image/jpeg'):

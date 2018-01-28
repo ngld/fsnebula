@@ -95,6 +95,7 @@ class UploadedFile(Document):
     file_ext = StringField(max_length=10)
     checksum = StringField(primary_key=True, max_length=128)
     content_checksum = StringField(max_length=128)
+    vp_checksum = StringField(max_length=128)
     filesize = IntField()
     mod = ReferenceField(Mod)
     expires = IntField()
