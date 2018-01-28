@@ -4,11 +4,9 @@
 
 {% block body %}
     <h1>{{ mod.title }}</h1>
-</div>
-{% if mod.banner %}
-    <img src="{{ mod.banner }}">
-{% endif %}
-<div class="container">
+    {% if mod.banner %}
+        <img src="{{ mod.banner }}">
+    {% endif %}
     <h2>Do you already have Knossos?</h1>
 
     <div class="row">

@@ -328,9 +328,13 @@ def create_release():
         try:
             img = release.banner or mod.logo
             if img:
-                img = UploadedFile.objects(checksum=img).first()
-                if img:
-                    img = {'url': img.get_url()}
+                if '://' in img:
+                    img = {'url': img}
+                else:
+                    img = UploadedFile.objects(checksum=img).first()
+
+                    if img:
+                        img = {'url': img.get_url()}
 
             if not img:
                 img = None
