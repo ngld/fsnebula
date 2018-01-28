@@ -494,10 +494,14 @@ def rebuild_repo():
 @app.route('/mod/<mid>', methods={'GET'})
 def view_mod(mid):
     mod = Mod.objects(mid=mid).first()
-    if not mod or len(mod.releases) < 0:
+    if not mod:
         abort(404)
 
-    rel = mod.releases[-1]
+    rels = [rel for rel in mod.releases if not rel.hidden]
+    if len(rels) < 1:
+        abort(404)
+
+    rel = rels[-1]
     banner = None
 
     if rel.banner:
@@ -505,11 +509,31 @@ def view_mod(mid):
         if b:
             banner = b.get_url()
 
+    has_mod_ini = False
+    for pkg in rel.packages:
+        for item in pkg.filelist:
+            if item['filename'] == 'mod.ini':
+                has_mod_ini = True
+                break
+
+        if has_mod_ini:
+            break
+
+    dl_links = {}
+    for pkg in rel.packages:
+        for archive in pkg.files:
+            ar = UploadedFile.objects(checksum=archive.checksum).first()
+            if ar:
+                dl_links[archive.checksum] = ar.get_url()
+
     return render_template('mod_install.html.j2', mod={
         'id': mod.mid,
         'title': mod.title,
         'version': rel.version,
-        'banner': banner
+        'banner': banner,
+        'dl_links': dl_links,
+        'packages': rel.packages,
+        'has_mod_ini': has_mod_ini
     })
 
 

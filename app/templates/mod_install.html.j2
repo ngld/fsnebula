@@ -17,4 +17,43 @@
             <a href="/knossos/" class="btn btn-primary">No, tell me how to install it</a>
         </div>
     </div>
+
+    <br>
+
+    <div class="panel-group">
+        <div class="panel panel-default">
+            <div class="panel-heading" id="expert_heading">
+                <h4 class="panel-title">
+                    <a role="button" data-toggle="collapse" href="#expert_content" aria-controls="expert_content">
+                        No, but I know exactly what I'm doing and I just want download links
+                    </a>
+                </h4>
+            </div>
+            <div id="expert_content" class="panel-collapse collapse" role="tabpanel" aria-labelledby="expert_heading">
+                <div class="panel-body">
+                    {% if not mod.has_mod_ini %}
+                        <div class="alert alert-warning" role="alert">
+                            This mod doesn't include a mod.ini file which means you'll have to write one yourself!
+                        </div>
+                    {% endif %}
+
+                    {% for pkg in mod.packages %}
+                        <h4>{{ pkg.name }}</h4>
+
+                        {% if pkg.notes %}
+                            <p>{{ pkg.notes }}</p>
+                        {% endif %}
+
+                        <ul>
+                            {% for archive in pkg.files %}
+                                {% if mod.dl_links[archive.checksum] %}
+                                    <li><a href="{{ mod.dl_links[archive.checksum] }}/rn/{{ archive.filename }}">{{ archive.filename }}</a> SHA256: {{ archive.checksum }}</li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
