@@ -10,7 +10,7 @@ from mongoengine.errors import ValidationError
 from .. import app
 from ..helpers import verify_token, send_mail
 from ..models import (
-    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User
+    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User,
     TEAM_OWNER, TEAM_MANAGER, TEAM_UPLOADER, TEAM_TESTER
 )
 
@@ -572,7 +572,7 @@ def update_team_members():
     for mem in params['members']:
         mem_user = User.objects(username=mem['user']).first()
         if not mem_user:
-            return jsonify(result=False, reason='member_not_found')
+            return jsonify(result=False, reason='member_not_found', member=mem['user'])
 
         new_members.append(TeamMember(user=mem_user, role=mem['role']))
 
@@ -599,7 +599,7 @@ def get_editable_mods():
     return jsonify(result=True, mods=mods)
 
 
-@app.route('/api/1/mod/is_editable', method={'POST'})
+@app.route('/api/1/mod/is_editable', methods={'POST'})
 def is_editable():
     user = verify_token()
     if not user:
@@ -607,7 +607,7 @@ def is_editable():
 
     mod = Mod.objects(mid=request.form['mid']).first()
     if not mod:
-        return jsonify(result=False, missing=True)
+        return jsonify(result=True, missing=True)
 
     role = None
     for mem in mod.team:
