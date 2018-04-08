@@ -76,6 +76,18 @@ class ModRelease(EmbeddedDocument):
     mod_flag = ListField(StringField(max_length=100))
     packages = EmbeddedDocumentListField(Package)
     hidden = BooleanField(default=False)
+    private = BooleanField(default=False)
+
+
+TEAM_OWNER = 0
+TEAM_MANAGER = 10
+TEAM_UPLOADER = 20
+TEAM_TESTER = 30
+
+class TeamMember(EmbeddedDocument):
+    user = ReferenceField(User)
+    # Possible values: owner, uploader, tester
+    role = IntField(required=True)
 
 
 class Mod(Document):
@@ -85,8 +97,10 @@ class Mod(Document):
     parent = StringField(max_length=100)
     logo = StringField(max_length=128)
     tile = StringField(max_length=128)
+    tags = ListField(StringField(max_length=100))
     first_release = DateTimeField()
     members = ListField(ReferenceField(User))
+    team = EmbeddedDocumentListField(TeamMember)
     releases = EmbeddedDocumentListField(ModRelease)
 
 
@@ -122,6 +136,14 @@ class UploadedFile(Document):
 
         # Strip off the "public/" prefix
         return app.config['DL_SERVER'] + '/' + self.filename[7:]
+
+    def get_urls(self):
+        if self.expires != -1:
+            raise ValueError()
+
+        # Strip off the "public/" prefix
+        slug = '/' + self.filename[7:]
+        return [prefix + slug for prefix in app.config['DL_MIRRORS']]
 
     def make_permanent(self):
         if self.expires == -1:

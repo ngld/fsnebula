@@ -4,12 +4,15 @@ import semantic_version
 import requests
 from datetime import datetime
 from email.message import EmailMessage
-from flask import request, jsonify, abort, url_for, redirect, render_template
+from flask import request, jsonify, abort, url_for, render_template
 from mongoengine.errors import ValidationError
 
 from .. import app
 from ..helpers import verify_token, send_mail
-from ..models import Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile
+from ..models import (
+    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User
+    TEAM_OWNER, TEAM_MANAGER, TEAM_UPLOADER, TEAM_TESTER
+)
 
 
 @app.route('/api/1/mod/check_id', methods={'POST'})
@@ -47,7 +50,7 @@ def create_mod():
               type=meta['type'],
               parent=meta.get('parent', 'FS2'),
               first_release=first_rel,
-              members=[user])
+              team=[TeamMember(user=user, role=TEAM_OWNER)])
 
     for prop in ('logo', 'tile'):
         if meta[prop] != '':
@@ -80,7 +83,13 @@ def update_mod():
     if not mod:
         abort(404)
 
-    if user not in mod.members:
+    role = None
+    for member in mod.team:
+        if member.user == user:
+            role = member.role
+            break
+
+    if role is None or role > TEAM_UPLOADER:
         return jsonify(result=False, reason='unauthorized')
 
     if meta.get('first_release'):
@@ -135,9 +144,15 @@ def create_or_update_mod():
                   type=meta['type'],
                   parent=meta.get('parent', 'FS2'),
                   first_release=first_rel,
-                  members=[user])
+                  team=[TeamMember(user=user, role=TEAM_OWNER)])
     else:
-        if user not in mod.members:
+        role = None
+        for member in mod.team:
+            if member.user == user:
+                role = member.role
+                break
+
+        if role is None or role > TEAM_UPLOADER:
             return jsonify(result=False, reason='unauthorized')
 
         if first_rel:
@@ -179,7 +194,13 @@ def _do_preflight(save=False, ignore_duplicate=False):
     if not mod:
         abort(404)
 
-    if user not in mod.members:
+    role = None
+    for member in mod.team:
+        if member.user == user:
+            role = member.role
+            break
+
+    if role is None or role > TEAM_UPLOADER:
         return meta, mod, None, user, 'unauthorized'
 
     release = ModRelease(
@@ -190,7 +211,8 @@ def _do_preflight(save=False, ignore_duplicate=False):
         notes=meta.get('notes', ''),
         last_update=datetime.now(),
         cmdline=meta.get('cmdline', ''),
-        mod_flag=meta.get('mod_flag', ''))
+        mod_flag=meta.get('mod_flag', ''),
+        private=meta.get('private', False))
 
     if mod.type == 'engine':
         release.stability = meta.get('stability', 'stable')
@@ -324,7 +346,7 @@ def create_release():
 
     generate_repo()
 
-    if app.config['DISCORD_WEBHOOK']:
+    if app.config['DISCORD_WEBHOOK'] and not mod.private:
         try:
             img = release.banner or mod.logo
             if img:
@@ -424,7 +446,13 @@ def delete_release():
     if not mod:
         abort(404)
 
-    if user not in mod.members:
+    role = None
+    for mem in mod.team:
+        if mem.user == user:
+            role = mem.role
+            break
+
+    if role is None or role > TEAM_UPLOADER:
         return jsonify(result=False, reason='unauthorized')
 
     version = request.form['version']
@@ -473,14 +501,121 @@ def report_release():
     return jsonify(result=True)
 
 
+@app.route('/api/1/mod/team/fetch', methods={'POST'})
+def list_team_members():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mod = Mod.objects(mid=request.form['mid']).first()
+    if not mod:
+        return jsonify(result=False, reason='missing')
+
+    role = None
+    for mem in mod.team:
+        if mem.user == user:
+            role = mem.role
+            break
+
+    if role is None or role > TEAM_MANAGER:
+        return jsonify(result=False, reason='unauthorized')
+
+    return jsonify(result=True, members=[{
+        'user': mem.user.username,
+        'role': mem.role
+    } for mem in mod.team])
+
+
+@app.route('/api/1/mod/team/update', methods={'POST'})
+def update_team_members():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    params = request.get_json()
+    if not params or 'mid' not in params or 'members' not in params:
+        abort(403)
+
+    mod = Mod.objects(mid=params['mid']).first()
+    if not mod:
+        abort(404)
+
+    role = None
+    for mem in mod.team:
+        if mem.user == user:
+            role = mem.role
+            break
+
+    if role is None or role > TEAM_MANAGER:
+        abort(403)
+
+    if role > TEAM_OWNER:
+        old_owners = [mem.user.username for mem in mod.team if mem.role <= TEAM_OWNER]
+        new_owners = [mem['user'] for mem in params['members'] if mem['role'] <= TEAM_OWNER]
+
+        old_owners.sort()
+        new_owners.sort()
+
+        if old_owners != new_owners:
+            return jsonify(result=False, reason='owners_changed')
+
+    has_owners = False
+    for mem in params['members']:
+        if mem['role'] <= TEAM_OWNER:
+            has_owners = True
+            break
+
+    if not has_owners:
+        return jsonify(result=False, reason='no_owners')
+
+    new_members = []
+    for mem in params['members']:
+        mem_user = User.objects(username=mem['user']).first()
+        if not mem_user:
+            return jsonify(result=False, reason='member_not_found')
+
+        new_members.append(TeamMember(user=mem_user, role=mem['role']))
+
+    mod.team = new_members
+    mod.save()
+    return jsonify(result=True)
+
+
+# NOTE: This is deprecated and will be removed in the future
 @app.route('/api/1/mod/editable', methods={'GET'})
 def get_editable_mods():
     user = verify_token()
     if not user:
         abort(403)
 
-    mods = [mod.mid for mod in Mod.objects(members=user.username)]
+    mods = [mod.mid for mod in Mod.objects(__raw__={
+        'team': {
+            '$elemMatch': {
+                'user': user.username,
+                'role': {'$lte': TEAM_UPLOADER}
+            }
+        }
+    })]
     return jsonify(result=True, mods=mods)
+
+
+@app.route('/api/1/mod/is_editable', method={'POST'})
+def is_editable():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mod = Mod.objects(mid=request.form['mid']).first()
+    if not mod:
+        return jsonify(result=False, missing=True)
+
+    role = None
+    for mem in mod.team:
+        if mem.user == user:
+            role = mem.role
+            break
+
+    return jsonify(result=role is not None and role <= TEAM_UPLOADER, missing=False)
 
 
 @app.route('/api/1/mod/rebuild_repo', methods={'GET'})
@@ -497,7 +632,7 @@ def view_mod(mid):
     if not mod:
         abort(404)
 
-    rels = [rel for rel in mod.releases if not rel.hidden]
+    rels = [rel for rel in mod.releases if not rel.hidden and not rel.private]
     if len(rels) < 1:
         abort(404)
 
@@ -537,6 +672,144 @@ def view_mod(mid):
     })
 
 
+@app.route('/api/1/mod/list_private', methods={'GET'})
+def private_repo():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mods = Mod.objects(__raw__={
+        'team': {
+            '$elemMatch': {
+                'user': user.username,
+                'role': {'$lte': TEAM_TESTER}
+            }
+        },
+
+        'releases.hidden': False,
+        'releases.private': True
+    })
+
+    return jsonify(result=True, mods=render_mod_list(mods, True))
+
+
+def render_mod_list(mods, private=False):
+    repo = []
+    files = {}
+
+    # Retrieve all file references in a single query
+    for mod in mods:
+        if mod.logo:
+            files[mod.logo] = None
+
+        if mod.tile:
+            files[mod.tile] = None
+
+    for item in UploadedFile.objects(checksum__in=files.keys()):
+        files[item.checksum] = item
+
+    for mod in mods:
+        logo = files.get(mod.logo)
+        tile = files.get(mod.tile)
+
+        for rel in mod.releases:
+            if rel.hidden or rel.private != private:
+                continue
+
+            if mod.banner and '://' in mod.banner:
+                banner = mod.banner
+            else:
+                banner = UploadedFile.objects(checksum=mod.banner).first()
+                if banner:
+                    banner = banner.get_url()
+
+            rmeta = {
+                'id': mod.mid,
+                'title': mod.title,
+                'version': mod.version,
+                'stability': mod.stability if mod.type == 'engine' else None,
+                'parent': mod.parent,
+                'description': mod.description,
+                'logo': logo and logo.get_url() or None,
+                'tile': tile and tile.get_url() or None,
+                'banner': banner,
+                'screenshots': [],
+                'attachments': [],
+                'release_thread': mod.release_thread,
+                'videos': mod.videos,
+                'notes': mod.notes,
+                'first_release': mod.first_release.strftime('%Y-%m-%d'),
+                'last_update': mod.last_update.strftime('%Y-%m-%d'),
+                'cmdline': mod.cmdline,
+                'mod_flag': mod.mod_flag,
+                'type': mod.type,
+                'packages': []
+            }
+
+            for prop in ('screenshots', 'attachments'):
+                for chk in getattr(mod, prop):
+                    if '://' in chk:
+                        rmeta[prop].append(chk)
+                    else:
+                        image = UploadedFile.objects(checksum=chk).first()
+                        if image:
+                            rmeta[prop].append(image.get_url())
+
+            for pkg in mod.packages:
+                pmeta = {
+                    'name': pkg.name,
+                    'notes': pkg.notes,
+                    'status': pkg.status,
+                    'dependencies': [],
+                    'environment': pkg.environment,
+                    'folder': pkg.folder,
+                    'is_vp': pkg.is_vp,
+                    'executables': [],
+                    'files': [],
+                    'filelist': []
+                }
+
+                for dep in pkg.dependencies:
+                    pmeta['dependencies'].append({
+                        'id': dep.id,
+                        'version': dep.version,
+                        'packages': dep.packages
+                    })
+
+                for exe in pkg.executables:
+                    pmeta['executables'].append({
+                        'file': exe.file,
+                        'label': exe.label
+                    })
+
+                for archive in pkg.files:
+                    file = {
+                        'filename': archive.filename,
+                        'dest': archive.dest,
+                        'checksum': ('sha256', archive.checksum),
+                        'filesize': archive.filesize,
+                    }
+
+                    if not archive.urls:
+                        arfile = UploadedFile.objects(checksum=archive.checksum).first()
+                        file['urls'] = arfile.get_urls()
+                    else:
+                        file['urls'] = archive.urls
+
+                    pmeta['files'].append(file)
+
+                for file in pkg.filelist:
+                    pmeta['filelist'].append({
+                        'filename': file.filename,
+                        'archive': file.archive,
+                        'orig_name': file.orig_name,
+                        'checksum': file.checksum
+                    })
+
+                rmeta['packages'].append(pmeta)
+            repo.append(rmeta)
+
+
 def generate_repo():
     repo_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo.json')
     lock_path = repo_path + '.lock'
@@ -549,108 +822,7 @@ def generate_repo():
     app.logger.info('Updating repo...')
 
     try:
-        repo = []
-        for mod in Mod.objects:
-            logo = UploadedFile.objects(checksum=mod.logo).first()
-            tile = UploadedFile.objects(checksum=mod.tile).first()
-
-            for rel in mod.releases:
-                if rel.hidden:
-                    continue
-
-                if rel.banner and '://' in rel.banner:
-                    banner = rel.banner
-                else:
-                    banner = UploadedFile.objects(checksum=rel.banner).first()
-                    if banner:
-                        banner = banner.get_url()
-
-                rmeta = {
-                    'id': mod.mid,
-                    'title': mod.title,
-                    'version': rel.version,
-                    'stability': rel.stability if mod.type == 'engine' else None,
-                    'parent': mod.parent,
-                    'description': rel.description,
-                    'logo': logo and logo.get_url() or None,
-                    'tile': tile and tile.get_url() or None,
-                    'banner': banner,
-                    'screenshots': [],
-                    'attachments': [],
-                    'release_thread': rel.release_thread,
-                    'videos': rel.videos,
-                    'notes': rel.notes,
-                    'first_release': mod.first_release.strftime('%Y-%m-%d'),
-                    'last_update': rel.last_update.strftime('%Y-%m-%d'),
-                    'cmdline': rel.cmdline,
-                    'mod_flag': rel.mod_flag,
-                    'type': mod.type,
-                    'packages': []
-                }
-
-                for prop in ('screenshots', 'attachments'):
-                    for chk in getattr(rel, prop):
-                        if '://' in chk:
-                            rmeta[prop].append(chk)
-                        else:
-                            image = UploadedFile.objects(checksum=chk).first()
-                            if image:
-                                rmeta[prop].append(image.get_url())
-
-                for pkg in rel.packages:
-                    pmeta = {
-                        'name': pkg.name,
-                        'notes': pkg.notes,
-                        'status': pkg.status,
-                        'dependencies': [],
-                        'environment': pkg.environment,
-                        'folder': pkg.folder,
-                        'is_vp': pkg.is_vp,
-                        'executables': [],
-                        'files': [],
-                        'filelist': []
-                    }
-
-                    for dep in pkg.dependencies:
-                        pmeta['dependencies'].append({
-                            'id': dep.id,
-                            'version': dep.version,
-                            'packages': dep.packages
-                        })
-
-                    for exe in pkg.executables:
-                        pmeta['executables'].append({
-                            'file': exe.file,
-                            'label': exe.label
-                        })
-
-                    for archive in pkg.files:
-                        file = {
-                            'filename': archive.filename,
-                            'dest': archive.dest,
-                            'checksum': ('sha256', archive.checksum),
-                            'filesize': archive.filesize,
-                        }
-
-                        if not archive.urls:
-                            arfile = UploadedFile.objects(checksum=archive.checksum).first()
-                            file['urls'] = [arfile.get_url()]
-                        else:
-                            file['urls'] = archive.urls
-
-                        pmeta['files'].append(file)
-
-                    for file in pkg.filelist:
-                        pmeta['filelist'].append({
-                            'filename': file.filename,
-                            'archive': file.archive,
-                            'orig_name': file.orig_name,
-                            'checksum': file.checksum
-                        })
-
-                    rmeta['packages'].append(pmeta)
-
-                repo.append(rmeta)
+        repo = render_mod_list(Mod.objects)
 
         with open(repo_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
