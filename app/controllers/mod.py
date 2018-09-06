@@ -4,6 +4,7 @@ import semantic_version
 import requests
 from datetime import datetime
 from email.message import EmailMessage
+from urllib.parse import urlparse
 from flask import request, jsonify, abort, url_for, render_template
 from mongoengine.errors import ValidationError
 
@@ -203,7 +204,13 @@ def _do_preflight(save=False, ignore_duplicate=False):
     if role is None or role > TEAM_UPLOADER:
         return meta, mod, None, user, 'unauthorized'
 
+    if meta.get('chunked_upload', False):
+        release = ModRelease.objects(mod=mod, version=meta['version'], hidden=True).first()
+        if release:
+            return meta, mod, release, user, None
+
     release = ModRelease(
+        mod=mod,
         version=meta['version'],
         description=meta.get('description', ''),
         release_thread=meta.get('release_thread', None),
@@ -212,7 +219,8 @@ def _do_preflight(save=False, ignore_duplicate=False):
         last_update=datetime.now(),
         cmdline=meta.get('cmdline', ''),
         mod_flag=meta.get('mod_flag', ''),
-        private=meta.get('private', False))
+        private=meta.get('private', False),
+        hidden=meta.get('chunked_upload', False))
 
     if mod.type == 'engine':
         release.stability = meta.get('stability', 'stable')
@@ -224,7 +232,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
         return meta, mod, None, user, 'invalid version'
 
     if not ignore_duplicate:
-        for rel in mod.releases:
+        for rel in ModRelease.objects(mod=mod):
             try:
                 rv = semantic_version.Version(rel.version)
             except ValueError:
@@ -323,6 +331,10 @@ def create_release():
             pkg.files.append(archive)
 
         for fmeta in pmeta['filelist']:
+            # Workaround
+            if not isinstance(fmeta['checksum'], list):
+                fmeta['checksum'] = ['sha256', fmeta['checksum']]
+
             file = ModFile(filename=fmeta['filename'],
                            archive=fmeta['archive'],
                            orig_name=fmeta['orig_name'],
@@ -332,9 +344,14 @@ def create_release():
 
         release.packages.append(pkg)
 
-    mod.releases.append(release)
+    if meta.get('chunked_upload', False):
+        pkg_names = set([pkg.name for pkg in release.packages])
+        if not set(meta['chunks']) - pkg_names:
+            # All chunks have arrived
+            release.hidden = False
+
     try:
-        mod.save()
+        release.save()
     except ValidationError as exc:
         return jsonify(result=False, reason=str(exc))
 
@@ -344,9 +361,13 @@ def create_release():
 
         file.make_permanent()
 
-    generate_repo()
+    if not release.hidden:
+        if release.private:
+            generate_private_repo(mod)
+        else:
+            generate_repo()
 
-    if app.config['DISCORD_WEBHOOK'] and not mod.private:
+    if app.config['DISCORD_WEBHOOK'] and not release.private and not release.hidden:
         try:
             img = release.banner or mod.logo
             if img:
@@ -388,14 +409,7 @@ def update_release():
     if error:
         return jsonify(result=False, reason=error)
 
-    old_rel = None
-    idx = -1
-    for i, rel in enumerate(mod.releases):
-        if rel.version == release.version:
-            old_rel = rel
-            idx = i
-            break
-
+    old_rel = ModRelease.objects(mod=mod, version=release.version).first()
     if not old_rel:
         return jsonify(result=False, reason='release missing')
 
@@ -429,10 +443,14 @@ def update_release():
         release.packages.append(pkg)
 
     # Overwrite the old release with the new one
-    mod.releases[idx] = release
-    mod.save()
+    release.id = old_rel.id
+    release.save()
 
-    generate_repo()
+    if release.private:
+        generate_private_repo(mod)
+    else:
+        generate_repo()
+
     return jsonify(result=True)
 
 
@@ -456,19 +474,18 @@ def delete_release():
         return jsonify(result=False, reason='unauthorized')
 
     version = request.form['version']
-    release = None
-    for rel in mod.releases:
-        if rel.version == version:
-            release = rel
-            break
-
+    release = ModRelease.objects(mod=mod, version=version).first()
     if not release:
         abort(404)
 
     release.hidden = True
     release.save()
 
-    generate_repo()
+    if release.private:
+        generate_private_repo(mod)
+    else:
+        generate_repo()
+
     return jsonify(result=True)
 
 
@@ -483,12 +500,7 @@ def report_release():
         abort(404)
 
     version = request.form['version']
-    release = None
-    for rel in mod.releases:
-        if rel.version == version:
-            release = rel
-            break
-
+    release = ModRelease.objects(mod=mod, version=version).first()
     if not release:
         abort(404)
 
@@ -626,16 +638,42 @@ def rebuild_repo():
     return jsonify(result=True)
 
 
+@app.route('/mods', methods={'GET'})
+def list_mods():
+    mods = Mod.objects.only('title', 'mid').select_related()
+    rels = ModRelease.objects(hidden=False, private=False, mod__in=mods).only('mod').all()
+    visible = set([rel.mod.id for rel in rels])
+    results = []
+
+    for mod in mods:
+        if mod.id in visible:
+            results.append(mod)
+
+    results.sort(key=lambda el: el.title)
+    return render_template('mod_list.html.j2', mods=results)
+
+
 @app.route('/mod/<mid>', methods={'GET'})
-def view_mod(mid):
+@app.route('/mod/<mid>/<version>', methods={'GET'})
+def view_mod(mid, version=None):
     mod = Mod.objects(mid=mid).first()
     if not mod:
         abort(404)
 
-    rels = [rel for rel in mod.releases if not rel.hidden and not rel.private]
+    cond = {
+        'mod': mod,
+        'hidden': False,
+        'private': False
+    }
+
+    if version:
+        cond['version'] = version
+
+    rels = list(ModRelease.objects(**cond).all())
     if len(rels) < 1:
         abort(404)
 
+    rels.sort(key=lambda rel: rel.last_update)
     rel = rels[-1]
     banner = None
 
@@ -659,12 +697,13 @@ def view_mod(mid):
         for archive in pkg.files:
             ar = UploadedFile.objects(checksum=archive.checksum).first()
             if ar:
-                dl_links[archive.checksum] = ar.get_url()
+                dl_links[archive.checksum] = [(url, urlparse(url).netloc) for url in ar.get_urls()]
 
     return render_template('mod_install.html.j2', mod={
         'id': mod.mid,
         'title': mod.title,
         'version': rel.version,
+        'last_update': rel.last_update,
         'banner': banner,
         'dl_links': dl_links,
         'packages': rel.packages,
@@ -684,18 +723,28 @@ def private_repo():
                 'user': user.username,
                 'role': {'$lte': TEAM_TESTER}
             }
-        },
+        }
+    }).select_related()
 
-        'releases.hidden': False,
-        'releases.private': True
-    })
+    repo = []
+    for mod in mods:
+        repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod_%s.json' % mod.id)
 
-    return jsonify(result=True, mods=render_mod_list(mods, True))
+        if os.path.isfile(repo_path):
+            with open(repo_path, 'r') as stream:
+                repo.extend(json.load(stream))
+
+    return json.dumps({'result': True, 'mods': repo}, separators=(',',':'))
+    #return json.dumps({'result': True, 'mods': render_mod_list(mods, True)}) #, seperators=(',',':'))
 
 
-def render_mod_list(mods, private=False):
+def render_mod_list(mods, private=False, no_chksum=False):
     repo = []
     files = {}
+    rel_map = {}
+
+    for rel in ModRelease.objects(hidden=False, private=private, mod__in=mods).select_related(4):
+        rel_map.setdefault(rel.mod.id, []).append(rel)
 
     # Retrieve all file references in a single query
     for mod in mods:
@@ -705,6 +754,23 @@ def render_mod_list(mods, private=False):
         if mod.tile:
             files[mod.tile] = None
 
+        for rel in rel_map.get(mod.id, []):
+            if rel.banner:
+                files[rel.banner] = None
+
+            for csum in rel.screenshots:
+                if '://' not in csum:
+                    files[csum] = None
+
+            for csum in rel.attachments:
+                if '://' not in csum:
+                    files[csum] = None
+
+            for pkg in rel.packages:
+                for ar in pkg.files:
+                    if not ar.urls:
+                        files[ar.checksum] = None
+
     for item in UploadedFile.objects(checksum__in=files.keys()):
         files[item.checksum] = item
 
@@ -712,50 +778,50 @@ def render_mod_list(mods, private=False):
         logo = files.get(mod.logo)
         tile = files.get(mod.tile)
 
-        for rel in mod.releases:
+        for rel in rel_map.get(mod.id, []):
             if rel.hidden or rel.private != private:
                 continue
 
-            if mod.banner and '://' in mod.banner:
-                banner = mod.banner
+            if rel.banner and '://' in rel.banner:
+                banner = rel.banner
             else:
-                banner = UploadedFile.objects(checksum=mod.banner).first()
+                banner = files.get(rel.banner)
                 if banner:
                     banner = banner.get_url()
 
             rmeta = {
                 'id': mod.mid,
                 'title': mod.title,
-                'version': mod.version,
-                'stability': mod.stability if mod.type == 'engine' else None,
+                'version': rel.version,
+                'stability': rel.stability if mod.type == 'engine' else None,
                 'parent': mod.parent,
-                'description': mod.description,
+                'description': rel.description,
                 'logo': logo and logo.get_url() or None,
                 'tile': tile and tile.get_url() or None,
                 'banner': banner,
                 'screenshots': [],
                 'attachments': [],
-                'release_thread': mod.release_thread,
-                'videos': mod.videos,
-                'notes': mod.notes,
+                'release_thread': rel.release_thread,
+                'videos': rel.videos,
+                'notes': rel.notes,
                 'first_release': mod.first_release.strftime('%Y-%m-%d'),
-                'last_update': mod.last_update.strftime('%Y-%m-%d'),
-                'cmdline': mod.cmdline,
-                'mod_flag': mod.mod_flag,
+                'last_update': rel.last_update.strftime('%Y-%m-%d'),
+                'cmdline': rel.cmdline,
+                'mod_flag': rel.mod_flag,
                 'type': mod.type,
                 'packages': []
             }
 
             for prop in ('screenshots', 'attachments'):
-                for chk in getattr(mod, prop):
+                for chk in getattr(rel, prop):
                     if '://' in chk:
                         rmeta[prop].append(chk)
                     else:
-                        image = UploadedFile.objects(checksum=chk).first()
+                        image = files.get(chk)
                         if image:
                             rmeta[prop].append(image.get_url())
 
-            for pkg in mod.packages:
+            for pkg in rel.packages:
                 pmeta = {
                     'name': pkg.name,
                     'notes': pkg.notes,
@@ -791,23 +857,26 @@ def render_mod_list(mods, private=False):
                     }
 
                     if not archive.urls:
-                        arfile = UploadedFile.objects(checksum=archive.checksum).first()
+                        arfile = files.get(archive.checksum)
                         file['urls'] = arfile.get_urls()
                     else:
                         file['urls'] = archive.urls
 
                     pmeta['files'].append(file)
 
-                for file in pkg.filelist:
-                    pmeta['filelist'].append({
-                        'filename': file.filename,
-                        'archive': file.archive,
-                        'orig_name': file.orig_name,
-                        'checksum': file.checksum
-                    })
+                if not no_chksum:
+                    for file in pkg.filelist:
+                        pmeta['filelist'].append({
+                            'filename': file.filename,
+                            'archive': file.archive,
+                            'orig_name': file.orig_name,
+                            'checksum': file.checksum
+                        })
 
                 rmeta['packages'].append(pmeta)
             repo.append(rmeta)
+
+    return repo
 
 
 def generate_repo():
@@ -822,13 +891,30 @@ def generate_repo():
     app.logger.info('Updating repo...')
 
     try:
-        repo = render_mod_list(Mod.objects)
+        repo = render_mod_list(Mod.objects.select_related(4))
 
         with open(repo_path, 'w') as stream:
-            json.dump({'mods': repo}, stream)
+            json.dump({'mods': repo}, stream) # , seperator=(',',':'))
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
 
     app.logger.info('Repo update finished.')
     os.unlink(lock_path)
+
+
+def generate_private_repo(mod):
+    repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod_%s.json' % mod.id)
+    app.logger.info('Updating mod %s repo...' % mod.mid)
+
+    try:
+        repo = render_mod_list([mod], private=True)
+    
+        with open(repo_path, 'w') as stream:
+            json.dump(repo, stream)
+
+    except Exception:
+        app.logger.exception('Failed to update mod repository!')
+
+    app.logger.info('Mod repo finished.')
+

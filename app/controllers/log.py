@@ -10,9 +10,9 @@ from ..log_lexer import FsoLogLexer
 
 @app.route('/api/1/log/upload', methods={'POST'})
 def upload_log():
-    user = verify_token()
-    if not user:
-        abort(403)
+    #user = verify_token()
+    #if not user:
+    #    abort(403)
 
     try:
         log = Log(content=request.form['log'], uploaded=datetime.now())

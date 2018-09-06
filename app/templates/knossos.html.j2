@@ -9,7 +9,7 @@
 
     <h2>Windows</h2>
     <p>
-        Download <a href="{{ url_for('knossos_dl', base='Knossos', ext='exe') }}">this installer</a> (ca. 37 MB) and run it.
+        Download <a href="{{ url_for('knossos_dl', base='Knossos', ext='exe') }}">this installer</a> and run it.
     </p>
     <p>
         If you're using Windows 8 or later the Windows SmartScreen Filter might complain that it doesn't recognize this file because only a few people have downloaded it, yet. To start the installer, click on "More info" and then on "Run anyway".
@@ -19,6 +19,9 @@
     </p>            
 
     <h2>Ubuntu</h2>    
+    <p>
+        <strong>Currently only artful (17.10) and newer are supported.</strong>
+    </p>
     <p>
         Run these commands in a terminal to install Knossos:
         <pre>
@@ -44,7 +47,7 @@ sudo apt-get install knossos<!--
 
     <h2>Mac OS X</h2>
     <p>
-        Download this <a href="{{ url_for('knossos_dl', base='Knossos', ext='dmg') }}">DMG file</a>, (ca. 51 MB) open it and drag the Knossos icon on the Applications icon.
+        Download this <a href="{{ url_for('knossos_dl', base='Knossos', ext='dmg') }}">DMG file</a>, open it and drag the Knossos icon on the Applications icon.
         Now Knossos should appear in your list of installed applications and can be run like any other installed program.
     </p>
     <p>

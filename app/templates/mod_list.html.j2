@@ -1,0 +1,13 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Available mods{% endblock %}
+
+{% block body %}
+    <h1>Available Mods</h1>
+
+    <p>
+        {% for mod in mods %}
+            <a href="{{ url_for('view_mod', mid=mod.mid) }}">{{ mod.title }}</a><br>
+        {% endfor %}
+    </p>
+{% endblock %}

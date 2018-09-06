@@ -2,7 +2,8 @@ import os
 import shutil
 from mongoengine import (
     Document, EmbeddedDocument, StringField, ListField, BooleanField,
-    ReferenceField, IntField, DateTimeField, EmbeddedDocumentListField
+    ReferenceField, IntField, DateTimeField, EmbeddedDocumentListField,
+    LazyReferenceField, CASCADE
 )
 from flask import url_for
 from . import app
@@ -61,7 +62,7 @@ class Package(EmbeddedDocument):
     filelist = EmbeddedDocumentListField(ModFile)
 
 
-class ModRelease(EmbeddedDocument):
+class OldModRelease(EmbeddedDocument):
     version = StringField(required=True, max_length=32)
     stability = StringField(max_length=60)
     description = StringField(max_length=10240)
@@ -72,11 +73,34 @@ class ModRelease(EmbeddedDocument):
     attachments = ListField(StringField(max_length=128))
     notes = StringField(max_length=10240)
     last_update = DateTimeField()
-    cmdline = StringField(max_length=300)
+    cmdline = StringField(max_length=1000)
     mod_flag = ListField(StringField(max_length=100))
     packages = EmbeddedDocumentListField(Package)
     hidden = BooleanField(default=False)
     private = BooleanField(default=False)
+
+
+class ModRelease(Document):
+    mod = LazyReferenceField('Mod', required=True)
+    version = StringField(required=True, max_length=32)
+    stability = StringField(max_length=60)
+    description = StringField(max_length=10240)
+    release_thread = StringField(max_length=300)
+    banner = StringField(max_length=128)
+    videos = ListField(StringField(max_length=300))
+    screenshots = ListField(StringField(max_length=128))
+    attachments = ListField(StringField(max_length=128))
+    notes = StringField(max_length=10240)
+    last_update = DateTimeField()
+    cmdline = StringField(max_length=1000)
+    mod_flag = ListField(StringField(max_length=100))
+    packages = EmbeddedDocumentListField(Package)
+    hidden = BooleanField(default=False)
+    private = BooleanField(default=False)
+
+    meta = {
+      'indexes': ['mod', ('private', 'hidden')]
+    }
 
 
 TEAM_OWNER = 0
@@ -101,7 +125,10 @@ class Mod(Document):
     first_release = DateTimeField()
     members = ListField(ReferenceField(User))
     team = EmbeddedDocumentListField(TeamMember)
-    releases = EmbeddedDocumentListField(ModRelease)
+    releases = EmbeddedDocumentListField(OldModRelease)
+
+
+Mod.register_delete_rule(ModRelease, 'mod', CASCADE)
 
 
 class UploadedFile(Document):
@@ -135,7 +162,7 @@ class UploadedFile(Document):
             raise ValueError()
 
         # Strip off the "public/" prefix
-        return app.config['DL_SERVER'] + '/' + self.filename[7:]
+        return app.config['IMAGE_SERVER'] + '/' + self.filename[7:]
 
     def get_urls(self):
         if self.expires != -1:

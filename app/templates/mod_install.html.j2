@@ -3,7 +3,11 @@
 {% block title %}Install {{ mod.title }}{% endblock %}
 
 {% block body %}
-    <h1>{{ mod.title }}</h1>
+    <h1>{{ mod.title }} {{ mod.version }}</h1>
+    <p>
+        Last updated: {{ mod.last_update.strftime('%Y-%m-%d %H:%M') }}
+    </p>
+
     {% if mod.banner %}
         <img src="{{ mod.banner }}">
     {% endif %}
@@ -47,7 +51,15 @@
                         <ul>
                             {% for archive in pkg.files %}
                                 {% if mod.dl_links[archive.checksum] %}
-                                    <li><a href="{{ mod.dl_links[archive.checksum] }}/rn/{{ archive.filename }}">{{ archive.filename }}</a> SHA256: {{ archive.checksum }}</li>
+                                    <li>
+                                        {{ archive.filename }}:
+                                        {% for link, name in mod.dl_links[archive.checksum] %}
+                                            <a href="{{ link }}/rn/{{ archive.filename }}">{{ name }}</a>
+                                            {{ "|" if not loop.last }}
+                                        {% endfor %}
+
+                                        <br> SHA256: {{ archive.checksum }}
+                                    </li>
                                 {% endif %}
                             {% endfor %}
                         </ul>
