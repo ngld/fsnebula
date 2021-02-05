@@ -232,7 +232,7 @@ def _do_preflight(save=False, ignore_duplicate=False):
         return meta, mod, None, user, 'invalid version'
 
     if not ignore_duplicate:
-        for rel in ModRelease.objects(mod=mod):
+        for rel in ModRelease.objects(mod=mod).only('version'):
             try:
                 rv = semantic_version.Version(rel.version)
             except ValueError:
@@ -283,6 +283,43 @@ def preflight_release():
         return jsonify(result=False, reason=resp)
 
 
+def announce_release(release, mod):
+    if not app.config['DISCORD_WEBHOOK']:
+        return
+
+    try:
+        img = release.banner or mod.logo
+        if img:
+            if '://' in img:
+                img = {'url': img}
+            else:
+                img = UploadedFile.objects(checksum=img).first()
+
+                if img:
+                    img = {'url': img.get_url()}
+
+        if not img:
+            img = None
+
+        type_names = {
+            'mod': 'Mod',
+            'engine': 'Build',
+            'tc': 'Total Conversion'
+        }
+
+        requests.post(app.config['DISCORD_WEBHOOK'], json={
+            'username': app.config['DISCORD_NICK'],
+            'avatar_url': url_for('static', filename='avatar.png', _external=True).replace('api.fsnebula', 'cf.fsnebula'),
+            'embeds': [{
+                'url': url_for('view_mod', mid=mod.mid, _external=True).replace('api.fsnebula', 'fsnebula'),
+                'title': '%s %s %s released!' % (type_names.get(mod.type, ''), mod.title, release.version),
+                'image': img
+            }]
+        })
+    except Exception:
+        app.logger.exception('Failed to execute Discord webhook!')
+
+
 @app.route('/api/1/mod/release', methods={'POST'})
 def create_release():
     meta, mod, release, user, error = _do_preflight(save=True)
@@ -307,6 +344,7 @@ def create_release():
             exe = Executable(file=emeta['file'], label=emeta['label'])
             pkg.executables.append(exe)
 
+        check_map = {}
         for ameta in pmeta['files']:
             if ameta['checksum'][0] != 'sha256':
                 return jsonify(result=False, reason='unsupported archive checksum')
@@ -326,11 +364,21 @@ def create_release():
                 if not file:
                     return jsonify(result=False, reason='archive missing', archive=ameta['filename'])
 
+                #if file.duplicate_of:
+                #    orig = UploadedFile.objects(checksum=file.duplicate_of).first()
+                #    if orig:
+                #        check_map[ameta['filename']] = orig.vp_checksum
+                #        file = orig
+                #        archive.checksum = orig.checksum
+
                 files.append(file)
 
             pkg.files.append(archive)
 
         for fmeta in pmeta['filelist']:
+            #if fmeta['archive'] in check_map:
+            #    fmeta['checksum'] = ['sha256', check_map[fmeta['archive']]]
+
             # Workaround
             if not isinstance(fmeta['checksum'], list):
                 fmeta['checksum'] = ['sha256', fmeta['checksum']]
@@ -367,38 +415,8 @@ def create_release():
         else:
             generate_repo()
 
-    if app.config['DISCORD_WEBHOOK'] and not release.private and not release.hidden:
-        try:
-            img = release.banner or mod.logo
-            if img:
-                if '://' in img:
-                    img = {'url': img}
-                else:
-                    img = UploadedFile.objects(checksum=img).first()
-
-                    if img:
-                        img = {'url': img.get_url()}
-
-            if not img:
-                img = None
-
-            type_names = {
-                'mod': 'Mod',
-                'engine': 'Build',
-                'tc': 'Total Conversion'
-            }
-
-            requests.post(app.config['DISCORD_WEBHOOK'], json={
-                'username': app.config['DISCORD_NICK'],
-                'avatar_url': url_for('static', filename='avatar.png', _external=True),
-                'embeds': [{
-                    'url': url_for('view_mod', mid=mod.mid, _external=True),
-                    'title': '%s %s %s released!' % (type_names.get(mod.type, ''), mod.title, release.version),
-                    'image': img
-                }]
-            })
-        except Exception:
-            app.logger.exception('Failed to execute Discord webhook!')
+    if not release.private and not release.hidden:
+        announce_release(release, mod)
 
     return jsonify(result=True)
 
@@ -450,6 +468,9 @@ def update_release():
         generate_private_repo(mod)
     else:
         generate_repo()
+
+        if old_rel.private and not release.hidden:
+            announce_release(release, mod)
 
     return jsonify(result=True)
 
@@ -551,6 +572,13 @@ def update_team_members():
     mod = Mod.objects(mid=params['mid']).first()
     if not mod:
         abort(404)
+
+    for mem in params['members']:
+        if isinstance(mem['role'], str):
+            try:
+                mem['role'] = int(mem['role'])
+            except ValueError:
+                abort(400)
 
     role = None
     for mem in mod.team:
@@ -666,14 +694,23 @@ def view_mod(mid, version=None):
         'private': False
     }
 
-    if version:
+    if version and version != 'all':
         cond['version'] = version
 
-    rels = list(ModRelease.objects(**cond).all())
+    if version != 'all':
+        fields = ('banner', 'version', 'last_update', 'packages.name', 'packages.notes', 'packages.files')
+    else:
+        fields = ('banner', 'version', 'last_update')
+
+    rels = list(ModRelease.objects(**cond).only(*fields).all())
     if len(rels) < 1:
         abort(404)
 
     rels.sort(key=lambda rel: rel.last_update)
+
+    if not rels:
+        abort(404)
+
     rel = rels[-1]
     banner = None
 
@@ -682,33 +719,49 @@ def view_mod(mid, version=None):
         if b:
             banner = b.get_url()
 
-    has_mod_ini = False
-    for pkg in rel.packages:
-        for item in pkg.filelist:
-            if item['filename'] == 'mod.ini':
-                has_mod_ini = True
+    if version != 'all':
+        has_mod_ini = False
+        rel.reload(fields=('packages.filelist.filename'))
+        for pkg in rel.packages:
+            for item in pkg.filelist:
+                if item['filename'] == 'mod.ini':
+                    has_mod_ini = True
+                    break
+
+            if has_mod_ini:
                 break
 
-        if has_mod_ini:
-            break
+        dl_links = {}
+        for pkg in rel.packages:
+            for archive in pkg.files:
+                if archive.urls:
+                    urls = archive.urls
+                else:
+                    ar = UploadedFile.objects(checksum=archive.checksum).first()
+                    if ar:
+                        urls = [url + '/rn/' + archive.filename for url in ar.get_urls()]
+                    else:
+                        urls = None
 
-    dl_links = {}
-    for pkg in rel.packages:
-        for archive in pkg.files:
-            ar = UploadedFile.objects(checksum=archive.checksum).first()
-            if ar:
-                dl_links[archive.checksum] = [(url, urlparse(url).netloc) for url in ar.get_urls()]
+                if urls:
+                    dl_links[archive.checksum] = [(url, urlparse(url).netloc) for url in urls]
 
-    return render_template('mod_install.html.j2', mod={
-        'id': mod.mid,
-        'title': mod.title,
-        'version': rel.version,
-        'last_update': rel.last_update,
-        'banner': banner,
-        'dl_links': dl_links,
-        'packages': rel.packages,
-        'has_mod_ini': has_mod_ini
-    })
+        return render_template('mod_install.html.j2', mod={
+            'id': mod.mid,
+            'title': mod.title,
+            'version': rel.version,
+            'last_update': rel.last_update,
+            'banner': banner,
+            'dl_links': dl_links,
+            'packages': rel.packages,
+            'has_mod_ini': has_mod_ini
+        })
+    else:
+        return render_template('mod_versions.html.j2', versions=reversed(rels), mod={
+            'id': mod.mid,
+            'title': mod.title,
+            'banner': banner
+        })
 
 
 @app.route('/api/1/mod/list_private', methods={'GET'})
@@ -726,16 +779,87 @@ def private_repo():
         }
     }).select_related()
 
+    #app.logger.info('Private for: %s' % user.username)
+
     repo = []
     for mod in mods:
         repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod_%s.json' % mod.id)
+        #app.logger.info('Adding %s (%s)...' % (mod.title, mod.id))
 
         if os.path.isfile(repo_path):
             with open(repo_path, 'r') as stream:
-                repo.extend(json.load(stream))
+                content = stream.read()[1:-1]
+                if content != '':
+                    repo.append(content)
 
-    return json.dumps({'result': True, 'mods': repo}, separators=(',',':'))
+            #app.logger.info('Now %d releases.' % len(repo))
+        else:
+            rels = json.dumps(render_mod_list([mod], private=True), separators=(',',':'))
+            with open(repo_path, 'w') as stream:
+                stream.write(rels)
+
+            content = rels[1:-1]
+            if content != '':
+                repo.append(content)
+            #app.logger.info('Rendered. Now %d releases.' % len(repo))
+
+    return '{"result":true,"mods":[%s]}' % ','.join(repo)
+
+    #return json.dumps({'result': True, 'mods': repo}, separators=(',',':'))
     #return json.dumps({'result': True, 'mods': render_mod_list(mods, True)}) #, seperators=(',',':'))
+
+
+@app.route('/api/1/repo/private', methods={'GET'})
+def private_repo_v2():
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    mods = Mod.objects(__raw__={
+        'team': {
+            '$elemMatch': {
+                'user': user.username,
+                'role': {'$lte': TEAM_TESTER}
+            }
+        }
+    }).select_related()
+
+    repo = []
+    for mod in mods:
+        repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
+
+        if os.path.isfile(repo_path):
+            with open(repo_path, 'r') as stream:
+                content = stream.read()[1:-1]
+                if content != '':
+                    repo.append(content)
+
+    return '{"result:true,"mods":[%s]}' % ','.join(rels)
+
+
+@app.route('/api/1/repo/checksums', methods={'POST'})
+def fetch_checksums():
+    try:
+        mods = json.loads(request.form['mods'])
+    except ValueError:
+        abort(400)
+
+    result = {}
+    for mid, mvs in mods.items():
+        mod = Mod.objects(mid=mid).first()
+        mrs = (ModRelease
+            .objects(m=mod, version__in=mvs, hidden=False, private=False)
+            .only('version')
+            .only('packages.name')
+            .only('packages.filelist')
+            .as_pymongo())
+
+        result[mid] = mod_res = {}
+
+        for r in mrs:
+            mod_res[r['version']] = r['package']
+
+    return jsonify(result=result)
 
 
 def render_mod_list(mods, private=False, no_chksum=False):
@@ -774,6 +898,15 @@ def render_mod_list(mods, private=False, no_chksum=False):
     for item in UploadedFile.objects(checksum__in=files.keys()):
         files[item.checksum] = item
 
+    missing = []
+    for item in files.values():
+      if item and item.duplicate_of and item.duplicate_of not in files:
+        missing.append(item.duplicate_of)
+
+    if missing:
+      for item in UploadedFile.objects(checksum__in=missing):
+        files[item.checksum] = item
+
     for mod in mods:
         logo = files.get(mod.logo)
         tile = files.get(mod.tile)
@@ -793,6 +926,7 @@ def render_mod_list(mods, private=False, no_chksum=False):
                 'id': mod.mid,
                 'title': mod.title,
                 'version': rel.version,
+                'private': rel.private,
                 'stability': rel.stability if mod.type == 'engine' else None,
                 'parent': mod.parent,
                 'description': rel.description,
@@ -848,7 +982,15 @@ def render_mod_list(mods, private=False, no_chksum=False):
                         'label': exe.label
                     })
 
+                vp_fix = {}
                 for archive in pkg.files:
+                    arfile = files.get(archive.checksum)
+                    if arfile and arfile.duplicate_of:
+                      rep = files[arfile.duplicate_of]
+                      archive.checksum = rep.checksum
+                      vp_fix[arfile.vp_checksum] = rep.vp_checksum
+                      arfile = rep
+
                     file = {
                         'filename': archive.filename,
                         'dest': archive.dest,
@@ -857,7 +999,6 @@ def render_mod_list(mods, private=False, no_chksum=False):
                     }
 
                     if not archive.urls:
-                        arfile = files.get(archive.checksum)
                         file['urls'] = arfile.get_urls()
                     else:
                         file['urls'] = archive.urls
@@ -866,6 +1007,9 @@ def render_mod_list(mods, private=False, no_chksum=False):
 
                 if not no_chksum:
                     for file in pkg.filelist:
+                        if file.checksum[1] in vp_fix:
+                          file.checksum[1] = vp_fix[file.checksum[1]]
+
                         pmeta['filelist'].append({
                             'filename': file.filename,
                             'archive': file.archive,
@@ -911,6 +1055,12 @@ def generate_private_repo(mod):
         repo = render_mod_list([mod], private=True)
     
         with open(repo_path, 'w') as stream:
+            json.dump(repo, stream)
+
+        repo2_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
+        repo = render_mod_list([mod], private=True, no_chksum=True)
+
+        with open(repo2_path, 'w') as stream:
             json.dump(repo, stream)
 
     except Exception:

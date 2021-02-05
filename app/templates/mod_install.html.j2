@@ -54,7 +54,7 @@
                                     <li>
                                         {{ archive.filename }}:
                                         {% for link, name in mod.dl_links[archive.checksum] %}
-                                            <a href="{{ link }}/rn/{{ archive.filename }}">{{ name }}</a>
+                                            <a href="{{ link }}">{{ name }}</a>
                                             {{ "|" if not loop.last }}
                                         {% endfor %}
 

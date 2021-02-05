@@ -8,13 +8,14 @@ from mongoengine import (
 from flask import url_for
 from . import app
 
-__all__ = {'User', 'Dependency', 'Executable', 'ModArchive', 'ModFile', 'Package', 'ModRelease', 'Mod', 'UploadedFile'}
+__all__ = {'User', 'Dependency', 'Executable', 'ModArchive', 'ModFile', 'Package', 'ModRelease', 'Mod', 'UploadedFile', 'IndexedFile', 'ChunkedUpload'}
 
 
 class User(Document):
     username = StringField(primary_key=True, max_length=80)
     email = StringField(required=True, max_length=200)
     password = StringField(required=True, max_length=120)
+    token = StringField(max_length=120)
     groups = ListField(StringField(max_length=80))
 
     register_token = StringField(max_length=64, default=None)
@@ -97,6 +98,7 @@ class ModRelease(Document):
     packages = EmbeddedDocumentListField(Package)
     hidden = BooleanField(default=False)
     private = BooleanField(default=False)
+    rebuilt_filelist = BooleanField(default=False)
 
     meta = {
       'indexes': ['mod', ('private', 'hidden')]
@@ -129,17 +131,18 @@ class Mod(Document):
 
 
 Mod.register_delete_rule(ModRelease, 'mod', CASCADE)
-
-
 class UploadedFile(Document):
     filename = StringField(required=True, max_length=200)
     file_ext = StringField(max_length=10)
     checksum = StringField(primary_key=True, max_length=128)
     content_checksum = StringField(max_length=128)
+    is_vp = BooleanField(default=False)
     vp_checksum = StringField(max_length=128)
+    duplicate_of = StringField(max_length=128)
     filesize = IntField()
     mod = ReferenceField(Mod)
     expires = IntField()
+    indexed = BooleanField(default=False)
 
     meta = {
         'indexes': [
@@ -185,6 +188,23 @@ class UploadedFile(Document):
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.move(os.path.join(app.config['FILE_STORAGE'], old_path), dest_path)
         self.save()
+
+
+class ChunkedUpload(Document):
+    id = StringField(primary_key=True, max_length=128)
+    filesize = IntField(required=True)
+    total_parts = IntField(required=True)
+    finished_parts = ListField(IntField(required=True))
+    chunksize = IntField(default=-1)
+    done = BooleanField(default=False)
+    expires = IntField()
+
+
+class IndexedFile(Document):
+    hash_ = StringField(primary_key=True, max_length=128)
+    filenames = ListField(StringField(required=True, max_length=200))
+    archives = ListField(LazyReferenceField(UploadedFile, required=True))
+    filesize = IntField(required=True)
 
 
 class Log(Document):

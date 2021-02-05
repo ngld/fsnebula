@@ -2,6 +2,7 @@
 
 cd "$(dirname "$0")"
 
+export PIPENV_VENV_IN_PROJECT=1
 export FLASK_APP=app
 export NEBULA_SETTINGS=../dev.cfg
 
