@@ -6,9 +6,11 @@
 *.pyc
 *.pyo
 __pycache__
+uwsgi.ini
 
 # generated files
 /py-env/
+.venv/
 
 # Sublime Text
 *.sublime-*

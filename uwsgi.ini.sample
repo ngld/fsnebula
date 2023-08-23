@@ -1,0 +1,16 @@
+[uwsgi]
+plugin = python36
+env = NEBULA_SETTINGS=/path/to/production.cfg
+virtualenv = /path/to/.venv
+chdir = /path/to/fsnebula
+module = app:app
+
+master = true
+socket = 0.0.0.0:7701
+chown-socket = nginx
+processes = 12
+
+uid = nebula
+gid = nebula
+
+need-app = true

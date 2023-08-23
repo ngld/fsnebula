@@ -1,0 +1,19 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Install {{ mod.title }}{% endblock %}
+
+{% block body %}
+    <h1>{{ mod.title }}</h1>
+
+    {% if mod.banner %}
+        <img src="{{ mod.banner }}">
+    {% endif %}
+    <h2>Released Versions</h1>
+
+    <p>
+        {% for rel in versions %}
+            <a href="{{ url_for('view_mod', mid=mod.id, version=rel.version) }}">{{ rel.version }}</a>
+            <br>
+        {% endfor %}
+    </p>
+{% endblock %}
