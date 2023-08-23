@@ -124,6 +124,11 @@ def start_chunked_upload():
     chunk_path = os.path.join(app.config['FILE_STORAGE'], 'chunks', file.id)
     os.makedirs(chunk_path, exist_ok=True)
 
+    if file.done:
+        app.logger.warning('Found finished upload for %s', request.form['id'])
+    else:
+        app.logger.warning('Started upload for %s', request.form['id'])
+
     return jsonify(
             result=True,
             done=file.done,
@@ -188,6 +193,7 @@ def finish_chunked_upload():
     except Exception:
         app.logger.exception('Failed to cleanup chunk directory for upload %s!' % file.id)
 
+    app.logger.warning('Finished upload for %s', request.form['id'])
     return jsonify(result=True)
 
 

@@ -38,6 +38,15 @@ def view_log(log_id):
     return render_template('log.html.j2', uploaded=log.uploaded, content=content, css=formatter.get_style_defs())
 
 
+@app.route('/log/<log_id>/raw', methods={'GET'})
+def view_raw_log(log_id):
+    log = Log.objects(id=log_id).first()
+    if not log:
+        abort(404)
+
+    return log.content
+
+
 @app.route('/log/search', methods={'GET', 'POST'})
 def search_logs():
     results = []

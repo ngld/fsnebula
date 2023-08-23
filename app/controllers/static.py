@@ -7,9 +7,9 @@ from .. import app
 
 def fetch_kn_version():
     try:
-        #resp = requests.get('https://github.com/ngld/knossos/releases')
-        #m = re.search(r'<h1 class="release-title text-normal">\s*<a href="/ngld/knossos/releases/tag/v([0-9\.]+)">Knossos ', resp.text)
-        resp = requests.get('https://api.github.com/repos/ngld/knossos/releases')
+        #resp = requests.get('https://github.com/ngld/old-knossos/releases')
+        #m = re.search(r'<h1 class="release-title text-normal">\s*<a href="/ngld/old-knossos/releases/tag/v([0-9\.]+)">Knossos ', resp.text)
+        resp = requests.get('https://api.github.com/repos/ngld/old-knossos/releases')
         # I'm too lazy to properly decode the response so let's keep using RegEx!
         m = re.search(r'"tag_name":\s*"v([0-9\.]+)",', resp.text)
 
@@ -41,6 +41,11 @@ def get_kn_version():
         return stream.read()
 
 
+@app.route('/knossos/stable/Knossos.exe')
+def community_knossos_dl():
+    return redirect('https://pxo.nottheeye.com/files/test/knossos/Knossos-0.15.0-dev+73b131a.exe')
+
+
 @app.route('/knossos/stable/<base>.<ext>')
 def knossos_dl(base, ext):
     if base == 'updater':
@@ -52,7 +57,7 @@ def knossos_dl(base, ext):
     with open('version.txt', 'r') as stream:
         version = stream.read()
 
-    url = 'https://github.com/ngld/knossos/releases/download/v%(version)s/%(base)s-%(version)s.%(ext)s' % {
+    url = 'https://github.com/ngld/old-knossos/releases/download/v%(version)s/%(base)s-%(version)s.%(ext)s' % {
         'base': base,
         'version': version,
         'ext': ext

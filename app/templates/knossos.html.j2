@@ -5,7 +5,7 @@
 {% block body %}
     <h1>Knossos <small>Installation instructions</small></h1>
 
-    <a href="https://github.com/ngld/knossos">GitHub</a> | <a href="https://www.hard-light.net/forums/index.php?topic=94068.0">HLP Thread</a>
+    <a href="https://github.com/ngld/old-knossos">GitHub</a> | <a href="https://www.hard-light.net/forums/index.php?topic=94068.0">HLP Thread</a>
 
     <h2>Windows</h2>
     <p>
@@ -18,20 +18,9 @@
         <strong>Update instructions:</strong> After you launch Knossos, it should ask you if you want to update. Just answer "yes" and wait for the process to finish.
     </p>            
 
-    <h2>Ubuntu</h2>    
+    <h2>Debian/Ubuntu</h2>
     <p>
-        <strong>Currently only artful (17.10) and newer are supported.</strong>
-    </p>
-    <p>
-        Run these commands in a terminal to install Knossos:
-        <pre>
-sudo add-apt-repository ppa:ngld/knossos
-sudo apt-get update
-sudo apt-get install knossos<!--
-        --></pre>
-    </p>
-    <p>
-        <strong>Update instructions:</strong> The knossos package can be updated like any other package on your system.
+        Install the <a href="https://pxo.nottheeye.com/files/test/knossos/knossos_0.15.0-dev+73b131a_all.deb">knossos deb package</a>.
     </p>
 
     <h2>Arch Linux</h2>
@@ -52,5 +41,13 @@ sudo apt-get install knossos<!--
     </p>
     <p>
         <strong>Update instructions:</strong> Repeat the installation instructions again. When a dialog asks you if you want to replace Knossos, click "yes".
+    </p>
+
+    <h2>Python module (all OSes)</h2>
+    <p>
+        Run the following:
+        <pre>
+pip install https://pxo.nottheeye.com/files/test/knossos/knossos-0.15.0.dev0+73b131a.tar.gz<!--
+        --></pre>
     </p>
 {% endblock %}
