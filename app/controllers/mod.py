@@ -324,6 +324,7 @@ def announce_release(release, mod):
 def create_release():
     meta, mod, release, user, error = _do_preflight(save=True)
     if error:
+        app.logger.error('Rejecting release for mod %s due to %s', mod.mid, error)
         return jsonify(result=False, reason=error)
 
     files = []
@@ -347,6 +348,7 @@ def create_release():
         check_map = {}
         for ameta in pmeta['files']:
             if ameta['checksum'][0] != 'sha256':
+                app.logger.error('Unsupported checksum for mod %s found: %s', mod.mid, ameta['checksum'][0])
                 return jsonify(result=False, reason='unsupported archive checksum')
 
             archive = ModArchive(filename=ameta['filename'],
@@ -356,12 +358,14 @@ def create_release():
 
             if 'urls' in ameta:
                 if user.username not in app.config['URLS_FOR']:
+                    app.logger.error('Found URLs in upload for mod %s from %s', mod.mid, user.username)
                     return jsonify(result=False, reason='urls unauthorized')
 
                 archive.urls = ameta['urls']
             else:
                 file = UploadedFile.objects(checksum=archive.checksum).first()
                 if not file:
+                    app.logger.error('Missing file %s (%s) for mod %s', ameta['filename'], archive.checksum, mod.mid)
                     return jsonify(result=False, reason='archive missing', archive=ameta['filename'])
 
                 #if file.duplicate_of:
@@ -401,6 +405,7 @@ def create_release():
     try:
         release.save()
     except ValidationError as exc:
+        app.logger.error('Failed to save release for mod %s due to %s', mod.mid, exc)
         return jsonify(result=False, reason=str(exc))
 
     for file in files:
@@ -415,7 +420,7 @@ def create_release():
         else:
             generate_repo()
 
-    if not release.private and not release.hidden:
+    if not release.private and not release.hidden and not (mod.mid == 'FSO' and release.stability == 'nightly'):
         announce_release(release, mod)
 
     return jsonify(result=True)
