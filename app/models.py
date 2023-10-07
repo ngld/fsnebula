@@ -31,7 +31,7 @@ class Dependency(EmbeddedDocument):
 
 
 class Executable(EmbeddedDocument):
-    file = StringField(required=True, max_length=120)
+    file = StringField(required=True, max_length=240)
     label = StringField(max_length=128, default=None)
 
 
