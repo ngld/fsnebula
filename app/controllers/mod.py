@@ -663,6 +663,33 @@ def is_editable():
     return jsonify(result=role is not None and role <= TEAM_UPLOADER, missing=False)
 
 
+@app.route('/api/1/mod/json/<mid>/<version>', methods={'GET'})
+def get_mod_json(mid, version):
+    exclude_fields = ('members', 'team', 'releases')
+    mod = Mod.objects(mid=mid).exclude(*exclude_fields).first()
+    if not mod:
+        return jsonify(result=False, reason='mod_not_found')
+
+    cond = {}
+
+    # make sure that we don't pass some weird stuff to the db
+    try:
+        ver = semantic_version.Version(version)
+        cond['version'] = str(ver)
+    except ValueError:
+        return jsonify(result=False, reason='invalid_version_string')
+
+    try:
+        repo = render_mod_list([mod], False, False, cond)
+
+        if len(repo) < 1:
+            return jsonify(result=False, reason='not_found')
+
+        return jsonify(result=True, mod=repo[0])
+    except Exception:
+        return jsonify(result=False, reason='repo_error')
+
+
 @app.route('/api/1/mod/rebuild_repo', methods={'GET'})
 def rebuild_repo():
     # TODO Access check
@@ -872,12 +899,12 @@ def get_dl_mirrors():
     return jsonify(result=app.config['DL_MIRRORS'])
 
 
-def render_mod_list(mods, private=False, no_chksum=False):
+def render_mod_list(mods, private=False, no_chksum=False, extra_cond={}):
     repo = []
     files = {}
     rel_map = {}
 
-    for rel in ModRelease.objects(hidden=False, private=private, mod__in=mods).select_related(4):
+    for rel in ModRelease.objects(hidden=False, private=private, mod__in=mods, **extra_cond).select_related(4):
         rel_map.setdefault(rel.mod.id, []).append(rel)
 
     # Retrieve all file references in a single query
@@ -1033,8 +1060,58 @@ def render_mod_list(mods, private=False, no_chksum=False):
     return repo
 
 
+def render_mod_list_minimal(mods):
+    repo = []
+    files = {}
+    rel_map = {}
+
+    fields = ('mod', 'version', 'stability', 'last_update')
+
+    for rel in ModRelease.objects(hidden=False, private=False, mod__in=mods).only(*fields).select_related(4):
+        rel_map.setdefault(rel.mod.id, []).append(rel)
+
+    for mod in mods:
+        if mod.tile:
+            files[mod.tile] = None
+
+    for item in UploadedFile.objects(checksum__in=files.keys()):
+        files[item.checksum] = item
+
+    missing = []
+    for item in files.values():
+      if item and item.duplicate_of and item.duplicate_of not in files:
+        missing.append(item.duplicate_of)
+
+    if missing:
+      for item in UploadedFile.objects(checksum__in=missing):
+        files[item.checksum] = item
+
+    for mod in mods:
+        tile = files.get(mod.tile)
+
+        for rel in rel_map.get(mod.id, []):
+            if rel.hidden or rel.private:
+                continue
+
+            rmeta = {
+                'id': mod.mid,
+                'title': mod.title,
+                'version': rel.version,
+                'stability': rel.stability if mod.type == 'engine' else None,
+                'tile': tile and tile.get_url() or None,
+                'first_release': mod.first_release.strftime('%Y-%m-%d'),
+                'last_update': rel.last_update.strftime('%Y-%m-%d'),
+                'type': mod.type,
+            }
+
+            repo.append(rmeta)
+
+    return repo
+
+
 def generate_repo():
     repo_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo.json')
+    repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
     lock_path = repo_path + '.lock'
 
     if os.path.isfile(lock_path):
@@ -1045,10 +1122,21 @@ def generate_repo():
     app.logger.info('Updating repo...')
 
     try:
-        repo = render_mod_list(Mod.objects.select_related(4))
+        exclude_fields = ('members', 'team', 'releases')
+
+        mods = Mod.objects.exclude(*exclude_fields).select_related(4)
+
+        # full repo list
+        repo = render_mod_list(mods)
 
         with open(repo_path, 'w') as stream:
             json.dump({'mods': repo}, stream) # , seperator=(',',':'))
+
+        # minimal repo list
+        repo = render_mod_list_minimal(mods)
+
+        with open(repo_min_path, 'w') as stream:
+            json.dump({'mods': repo}, stream)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
