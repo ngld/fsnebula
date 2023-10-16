@@ -867,6 +867,11 @@ def fetch_checksums():
     return jsonify(result=result)
 
 
+@app.route('/api/1/repo/mirrors', methods={'GET'})
+def get_dl_mirrors():
+    return jsonify(result=app.config['DL_MIRRORS'])
+
+
 def render_mod_list(mods, private=False, no_chksum=False):
     repo = []
     files = {}
