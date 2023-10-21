@@ -665,7 +665,7 @@ def is_editable():
 
 @app.route('/api/1/mod/json/<mid>/<version>', methods={'GET'})
 def get_mod_json(mid, version):
-    exclude_fields = ('members', 'team', 'releases')
+    exclude_fields = ('members', 'releases')
     mod = Mod.objects(mid=mid).exclude(*exclude_fields).first()
     if not mod:
         return jsonify(result=False, reason='mod_not_found')
@@ -684,6 +684,13 @@ def get_mod_json(mid, version):
 
         if len(repo) < 1:
             return jsonify(result=False, reason='not_found')
+
+        owners = []
+        for mem in mod.team:
+            if mem.role <= TEAM_OWNER:
+                owners.append(mem.user.username)
+
+        repo[0]['owners'] = owners
 
         return jsonify(result=True, mod=repo[0])
     except Exception:
