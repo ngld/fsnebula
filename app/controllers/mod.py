@@ -1105,6 +1105,7 @@ def render_mod_list_minimal(mods):
                 'title': mod.title,
                 'version': rel.version,
                 'stability': rel.stability if mod.type == 'engine' else None,
+                'parent': mod.parent,
                 'tile': tile and tile.get_url() or None,
                 'first_release': mod.first_release.strftime('%Y-%m-%d'),
                 'last_update': rel.last_update.strftime('%Y-%m-%d'),
