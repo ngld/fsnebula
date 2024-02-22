@@ -1117,9 +1117,8 @@ def render_mod_list_minimal(mods):
 
 
 def generate_repo():
-    repo_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo.json')
     repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
-    lock_path = repo_path + '.lock'
+    lock_path = repo_min_path + '.lock'
 
     if os.path.isfile(lock_path):
         app.logger.error('Skipping repo update because another update is already in progress!')
@@ -1133,12 +1132,6 @@ def generate_repo():
 
         mods = Mod.objects.exclude(*exclude_fields).select_related(4)
 
-        # full repo list
-        repo = render_mod_list(mods)
-
-        with open(repo_path, 'w') as stream:
-            json.dump({'mods': repo}, stream) # , seperator=(',',':'))
-
         # minimal repo list
         repo = render_mod_list_minimal(mods)
 
@@ -1147,6 +1140,10 @@ def generate_repo():
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
+
+    # flag big repo as needing an update
+    update_required = os.path.join(app.config['FILE_STORAGE'], 'repo_needs_update')
+    open(update_required, 'w').close()
 
     app.logger.info('Repo update finished.')
     os.unlink(lock_path)
