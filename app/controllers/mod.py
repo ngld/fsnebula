@@ -11,7 +11,7 @@ from mongoengine.errors import ValidationError
 from .. import app
 from ..helpers import verify_token, send_mail
 from ..models import (
-    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User,
+    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User, ModTags,
     TEAM_OWNER, TEAM_MANAGER, TEAM_UPLOADER, TEAM_TESTER
 )
 
@@ -1171,3 +1171,54 @@ def generate_private_repo(mod):
 
     app.logger.info('Mod repo finished.')
 
+
+# Mod tags section
+@app.route('/api/1/mod-tags/<mod ID>', methods={'POST'})
+def add_or_update_mod_tags():
+
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    meta = requests.get_json()
+    if not meta:
+        abort(400)
+
+    mod = Mod.objects(mid=meta['id']).first()
+    if not mod:
+        abort(400)
+
+    role = None
+    for member in mod.team:
+        if member.user == user:
+            role = member.role
+            break
+
+    if role is None or role > TEAM_UPLOADER:
+        return jsonify(result=False, reason='unauthorized')
+
+    mod_tags = ModTags.objects(mid=meta['id']).first()
+    if mod_tags:
+        mod_tags.tags = meta.get('tags', [])
+    else:
+        mod_tags = ModTags(
+        id = mod,
+        tags = meta.get('tags', []))
+
+    jsonify(result=True)
+
+@app.route('/api/1/mod-tags/', methods={'GET'})
+def get_tags():
+    mods = Mod.objects.only('title', 'mid').select_related()
+    rels = ModRelease.objects(hidden=False, private=False, mod__in=mods).only('mod').all()
+    visible = set([rel.mod.id for rel in rels])
+    tags = ModTags.objects.select_related()
+    results = []
+
+    for mod in mods:
+        if mod.id in visible:
+            temp = ModTags.objects(mid=mod.id).first()
+            if temp:
+                results.append(temp)
+
+    return render_template('mod_tags_list.html.j2', results)
