@@ -8,7 +8,7 @@ from mongoengine import (
 from flask import url_for
 from . import app
 
-__all__ = {'User', 'Dependency', 'Executable', 'ModArchive', 'ModFile', 'Package', 'ModRelease', 'Mod', 'UploadedFile', 'IndexedFile', 'ChunkedUpload'}
+__all__ = {'User', 'Dependency', 'Executable', 'ModArchive', 'ModFile', 'Package', 'ModRelease', 'Mod', 'UploadedFile', 'IndexedFile', 'ChunkedUpload', 'Tag'}
 
 
 class User(Document):
@@ -214,3 +214,7 @@ class Log(Document):
     meta = {
         'indexes': ['$content']
     }
+
+class Tag(Document):
+    id = StringField(required=True, max_length=120)
+    dependencies = ListField(StringField(max_length=64))
