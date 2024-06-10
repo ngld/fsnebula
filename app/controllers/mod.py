@@ -1173,18 +1173,17 @@ def generate_private_repo(mod):
 
 
 # Mod tags section
-@app.route('/api/1/mod-tags/<mod ID>', methods={'POST'})
-def add_or_update_mod_tags():
-
+@app.route('/api/1/mod-tags/<mid>', methods={'POST'})
+def add_or_update_mod_tags(mid):
     user = verify_token()
     if not user:
         abort(403)
 
-    meta = requests.get_json()
+    meta = request.get_json()
     if not meta:
         abort(400)
 
-    mod = Mod.objects(mid=meta['id']).first()
+    mod = Mod.objects(mid=mid).first()
     if not mod:
         abort(400)
 
@@ -1197,28 +1196,19 @@ def add_or_update_mod_tags():
     if role is None or role > TEAM_UPLOADER:
         return jsonify(result=False, reason='unauthorized')
 
-    mod_tags = ModTags.objects(mid=meta['id']).first()
+    mod_tags = ModTags.objects(mid=mid).first()
     if mod_tags:
         mod_tags.tags = meta.get('tags', [])
     else:
-        mod_tags = ModTags(
-        id = mod,
-        tags = meta.get('tags', []))
+        mod_tags = ModTags(id=mod,
+                           tags=meta.get('tags', []))
 
-    jsonify(result=True)
+    mod_tags.save()
+    return jsonify(result=True)
 
-@app.route('/api/1/mod-tags/', methods={'GET'})
+
+@app.route('/api/1/mod-tags', methods={'GET'})
 def get_tags():
-    mods = Mod.objects.only('title', 'mid').select_related()
-    rels = ModRelease.objects(hidden=False, private=False, mod__in=mods).only('mod').all()
+    rels = ModRelease.objects(hidden=False, private=False).only('mod').all()
     visible = set([rel.mod.id for rel in rels])
-    tags = ModTags.objects.select_related()
-    results = []
-
-    for mod in mods:
-        if mod.id in visible:
-            temp = ModTags.objects(mid=mod.id).first()
-            if temp:
-                results.append(temp)
-
-    return render_template('mod_tags_list.html.j2', results)
+    return jsonify(tags=list(ModTags.objects(id__in=visible)))
