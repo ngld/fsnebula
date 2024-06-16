@@ -1084,11 +1084,13 @@ def render_mod_list_minimal(mods):
     for item in UploadedFile.objects(checksum__in=files.keys()):
         files[item.checksum] = item
 
+    # look for bad references to files
     missing = []
     for item in files.values():
       if item and item.duplicate_of and item.duplicate_of not in files:
         missing.append(item.duplicate_of)
 
+    # and manually look for the files that they were trying to reference
     if missing:
       for item in UploadedFile.objects(checksum__in=missing):
         files[item.checksum] = item
@@ -1116,6 +1118,18 @@ def render_mod_list_minimal(mods):
 
     return repo
 
+def render_tag_list(tags):
+    tag_list = []
+
+    for tag in tags:
+        tag_info = {
+            'mod': tag.id,
+            'tags': tags.tags,
+        }
+        
+        tag_list.append(tag_info)
+
+    return tag_list
 
 def generate_repo():
     repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
@@ -1136,8 +1150,12 @@ def generate_repo():
         # minimal repo list
         repo = render_mod_list_minimal(mods)
 
+        # we are not picky about tags because it's a lot less info. Just save them.
+        tag_repo = render_tag_list(ModTags.objects)
+
         with open(repo_min_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
+            json.dump({'mod tags': tag_repo}, stream)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
