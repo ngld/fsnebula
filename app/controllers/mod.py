@@ -1152,10 +1152,12 @@ def generate_repo():
 
         # we are not picky about tags because it's a lot less info. Just save them.
         tag_repo = render_tag_list(ModTags.objects)
+        mirror_repo =app.config['DL_MIRRORS']
 
         with open(repo_min_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
             json.dump({'mod tags': tag_repo}, stream)
+            json.dump({'mirrors': mirror_repo}, stream)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
