@@ -11,7 +11,7 @@ from mongoengine.errors import ValidationError
 from .. import app
 from ..helpers import verify_token, send_mail
 from ..models import (
-    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User,
+    Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User, ModTags,
     TEAM_OWNER, TEAM_MANAGER, TEAM_UPLOADER, TEAM_TESTER
 )
 
@@ -1084,11 +1084,13 @@ def render_mod_list_minimal(mods):
     for item in UploadedFile.objects(checksum__in=files.keys()):
         files[item.checksum] = item
 
+    # look for bad references to files
     missing = []
     for item in files.values():
       if item and item.duplicate_of and item.duplicate_of not in files:
         missing.append(item.duplicate_of)
 
+    # and manually look for the files that they were trying to reference
     if missing:
       for item in UploadedFile.objects(checksum__in=missing):
         files[item.checksum] = item
@@ -1116,6 +1118,18 @@ def render_mod_list_minimal(mods):
 
     return repo
 
+def render_tag_list(tags):
+    tag_list = []
+
+    for tag in tags:
+        tag_info = {
+            'mod': tag.id,
+            'tags': tags.tags,
+        }
+        
+        tag_list.append(tag_info)
+
+    return tag_list
 
 def generate_repo():
     repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
@@ -1136,8 +1150,14 @@ def generate_repo():
         # minimal repo list
         repo = render_mod_list_minimal(mods)
 
+        # we are not picky about tags because it's a lot less info. Just save them.
+        tag_repo = render_tag_list(ModTags.objects)
+        mirror_repo =app.config['DL_MIRRORS']
+
         with open(repo_min_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
+            json.dump({'mod tags': tag_repo}, stream)
+            json.dump({'mirrors': mirror_repo}, stream)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
@@ -1171,3 +1191,44 @@ def generate_private_repo(mod):
 
     app.logger.info('Mod repo finished.')
 
+
+# Mod tags section
+@app.route('/api/1/mod-tags/<mid>', methods={'POST'})
+def add_or_update_mod_tags(mid):
+    user = verify_token()
+    if not user:
+        abort(403)
+
+    meta = request.get_json()
+    if not meta:
+        abort(400)
+
+    mod = Mod.objects(mid=mid).first()
+    if not mod:
+        abort(400)
+
+    role = None
+    for member in mod.team:
+        if member.user == user:
+            role = member.role
+            break
+
+    if role is None or role > TEAM_UPLOADER:
+        return jsonify(result=False, reason='unauthorized')
+
+    mod_tags = ModTags.objects(mid=mid).first()
+    if mod_tags:
+        mod_tags.tags = meta.get('tags', [])
+    else:
+        mod_tags = ModTags(id=mod,
+                           tags=meta.get('tags', []))
+
+    mod_tags.save()
+    return jsonify(result=True)
+
+
+@app.route('/api/1/mod-tags', methods={'GET'})
+def get_tags():
+    rels = ModRelease.objects(hidden=False, private=False).only('mod').all()
+    visible = set([rel.mod.id for rel in rels])
+    return jsonify(tags=list(ModTags.objects(id__in=visible)))
