@@ -1140,7 +1140,13 @@ def generate_repo():
             except OSError:
                 pass
 
-    open(lock_path, 'w').close()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        app.logger.error('Skipping repo update because another update is already in progress!')
+        return
+
     app.logger.info('Updating repo...')
 
     try:
