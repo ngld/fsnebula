@@ -1177,22 +1177,31 @@ def generate_repo():
 
 def generate_private_repo(mod):
     repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod_%s.json' % mod.id)
+    repo2_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
     app.logger.info('Updating mod %s repo...' % mod.mid)
 
     try:
         repo = render_mod_list([mod], private=True)
-    
-        with open(repo_path, 'w') as stream:
-            json.dump(repo, stream)
 
-        repo2_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
+        tmp_path = repo_path + '.tmp'
+        with open(tmp_path, 'w') as stream:
+            json.dump(repo, stream)
+        os.replace(tmp_path, repo_path)
+
         repo = render_mod_list([mod], private=True, no_chksum=True)
 
-        with open(repo2_path, 'w') as stream:
+        tmp2_path = repo2_path + '.tmp'
+        with open(tmp2_path, 'w') as stream:
             json.dump(repo, stream)
+        os.replace(tmp2_path, repo2_path)
 
     except Exception:
         app.logger.exception('Failed to update mod repository!')
+        for tmp in (repo_path + '.tmp', repo2_path + '.tmp'):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
     app.logger.info('Mod repo finished.')
 
