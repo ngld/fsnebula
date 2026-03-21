@@ -1,5 +1,6 @@
 import os.path
 import json
+import time
 import semantic_version
 import requests
 from datetime import datetime
@@ -1120,10 +1121,24 @@ def render_mod_list_minimal(mods):
 def generate_repo():
     repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
     lock_path = repo_min_path + '.lock'
+    tmp_path = repo_min_path + '.tmp'
+    LOCK_TIMEOUT = 600  # 10 minutes
 
     if os.path.isfile(lock_path):
-        app.logger.error('Skipping repo update because another update is already in progress!')
-        return
+        try:
+            lock_age = time.time() - os.path.getmtime(lock_path)
+        except OSError:
+            lock_age = LOCK_TIMEOUT
+
+        if lock_age < LOCK_TIMEOUT:
+            app.logger.error('Skipping repo update because another update is already in progress!')
+            return
+        else:
+            app.logger.warning('Removing stale lock file (age: %.0f seconds).' % lock_age)
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
 
     open(lock_path, 'w').close()
     app.logger.info('Updating repo...')
@@ -1136,18 +1151,28 @@ def generate_repo():
         # minimal repo list
         repo = render_mod_list_minimal(mods)
 
-        with open(repo_min_path, 'w') as stream:
+        with open(tmp_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
+
+        os.replace(tmp_path, repo_min_path)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
-    # flag big repo as needing an update
-    update_required = os.path.join(app.config['FILE_STORAGE'], 'repo_needs_update')
-    open(update_required, 'w').close()
+    finally:
+        # flag big repo as needing an update
+        update_required = os.path.join(app.config['FILE_STORAGE'], 'repo_needs_update')
+        open(update_required, 'w').close()
 
-    app.logger.info('Repo update finished.')
-    os.unlink(lock_path)
+        app.logger.info('Repo update finished.')
+        try:
+            os.unlink(lock_path)
+        except OSError:
+            pass
 
 
 def generate_private_repo(mod):
