@@ -873,7 +873,7 @@ def private_repo_v2():
                 if content != '':
                     repo.append(content)
 
-    return '{"result:true,"mods":[%s]}' % ','.join(rels)
+    return '{"result":true,"mods":[%s]}' % ','.join(repo)
 
 
 @app.route('/api/1/repo/checksums', methods={'POST'})
