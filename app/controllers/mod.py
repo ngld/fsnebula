@@ -1,5 +1,6 @@
 import os.path
 import json
+import time
 import semantic_version
 import requests
 from datetime import datetime
@@ -1120,12 +1121,32 @@ def render_mod_list_minimal(mods):
 def generate_repo():
     repo_min_path = os.path.join(app.config['FILE_STORAGE'], 'public', 'repo_minimal.json')
     lock_path = repo_min_path + '.lock'
+    tmp_path = repo_min_path + '.tmp'
+    LOCK_TIMEOUT = 600  # 10 minutes
 
     if os.path.isfile(lock_path):
+        try:
+            lock_age = time.time() - os.path.getmtime(lock_path)
+        except OSError:
+            lock_age = LOCK_TIMEOUT
+
+        if lock_age < LOCK_TIMEOUT:
+            app.logger.error('Skipping repo update because another update is already in progress!')
+            return
+        else:
+            app.logger.warning('Removing stale lock file (age: %.0f seconds).' % lock_age)
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
+
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
         app.logger.error('Skipping repo update because another update is already in progress!')
         return
 
-    open(lock_path, 'w').close()
     app.logger.info('Updating repo...')
 
     try:
@@ -1136,38 +1157,57 @@ def generate_repo():
         # minimal repo list
         repo = render_mod_list_minimal(mods)
 
-        with open(repo_min_path, 'w') as stream:
+        with open(tmp_path, 'w') as stream:
             json.dump({'mods': repo}, stream)
+
+        os.replace(tmp_path, repo_min_path)
 
     except Exception:
         app.logger.exception('Failed to update repository data!')
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
-    # flag big repo as needing an update
-    update_required = os.path.join(app.config['FILE_STORAGE'], 'repo_needs_update')
-    open(update_required, 'w').close()
+    finally:
+        # flag big repo as needing an update
+        update_required = os.path.join(app.config['FILE_STORAGE'], 'repo_needs_update')
+        open(update_required, 'w').close()
 
-    app.logger.info('Repo update finished.')
-    os.unlink(lock_path)
+        app.logger.info('Repo update finished.')
+        try:
+            os.unlink(lock_path)
+        except OSError:
+            pass
 
 
 def generate_private_repo(mod):
     repo_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod_%s.json' % mod.id)
+    repo2_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
     app.logger.info('Updating mod %s repo...' % mod.mid)
 
     try:
         repo = render_mod_list([mod], private=True)
-    
-        with open(repo_path, 'w') as stream:
-            json.dump(repo, stream)
 
-        repo2_path = os.path.join(app.config['FILE_STORAGE'], 'cache', 'mod2_%s.json' % mod.id)
+        tmp_path = repo_path + '.tmp'
+        with open(tmp_path, 'w') as stream:
+            json.dump(repo, stream)
+        os.replace(tmp_path, repo_path)
+
         repo = render_mod_list([mod], private=True, no_chksum=True)
 
-        with open(repo2_path, 'w') as stream:
+        tmp2_path = repo2_path + '.tmp'
+        with open(tmp2_path, 'w') as stream:
             json.dump(repo, stream)
+        os.replace(tmp2_path, repo2_path)
 
     except Exception:
         app.logger.exception('Failed to update mod repository!')
+        for tmp in (repo_path + '.tmp', repo2_path + '.tmp'):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
     app.logger.info('Mod repo finished.')
 
