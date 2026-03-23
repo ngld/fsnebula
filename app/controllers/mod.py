@@ -419,6 +419,7 @@ def create_release():
         if release.private:
             generate_private_repo(mod)
         else:
+            clear_private_repo_cache(mod)
             generate_repo()
 
     if not release.private and not release.hidden and not (mod.mid == 'FSO' and release.stability == 'nightly'):
@@ -473,6 +474,7 @@ def update_release():
     if release.private:
         generate_private_repo(mod)
     else:
+        clear_private_repo_cache(mod)
         generate_repo()
 
         if old_rel.private and not release.hidden:
@@ -511,6 +513,7 @@ def delete_release():
     if release.private:
         generate_private_repo(mod)
     else:
+        clear_private_repo_cache(mod)
         generate_repo()
 
     return jsonify(result=True)
@@ -1179,6 +1182,13 @@ def generate_repo():
             os.unlink(lock_path)
         except OSError:
             pass
+
+
+def clear_private_repo_cache(mod):
+    for pattern in ('mod_%s.json', 'mod2_%s.json'):
+        path = os.path.join(app.config['FILE_STORAGE'], 'cache', pattern % mod.id)
+        if os.path.isfile(path):
+            os.unlink(path)
 
 
 def generate_private_repo(mod):
