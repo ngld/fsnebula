@@ -326,7 +326,7 @@ def create_release():
     meta, mod, release, user, error = _do_preflight(save=True)
     if error:
         app.logger.error('Rejecting release for mod %s due to %s', mod.mid, error)
-        return jsonify(result=False, reason=error)
+        return jsonify(result=False, reason=error), 400
 
     files = []
     for pmeta in meta['packages']:
@@ -350,7 +350,7 @@ def create_release():
         for ameta in pmeta['files']:
             if ameta['checksum'][0] != 'sha256':
                 app.logger.error('Unsupported checksum for mod %s found: %s', mod.mid, ameta['checksum'][0])
-                return jsonify(result=False, reason='unsupported archive checksum')
+                return jsonify(result=False, reason='unsupported archive checksum'), 400
 
             archive = ModArchive(filename=ameta['filename'],
                                  dest=ameta['dest'],
@@ -360,14 +360,14 @@ def create_release():
             if 'urls' in ameta:
                 if user.username not in app.config['URLS_FOR']:
                     app.logger.error('Found URLs in upload for mod %s from %s', mod.mid, user.username)
-                    return jsonify(result=False, reason='urls unauthorized')
+                    return jsonify(result=False, reason='urls unauthorized'), 403
 
                 archive.urls = ameta['urls']
             else:
                 file = UploadedFile.objects(checksum=archive.checksum).first()
                 if not file:
                     app.logger.error('Missing file %s (%s) for mod %s', ameta['filename'], archive.checksum, mod.mid)
-                    return jsonify(result=False, reason='archive missing', archive=ameta['filename'])
+                    return jsonify(result=False, reason='archive missing', archive=ameta['filename']), 400
 
                 #if file.duplicate_of:
                 #    orig = UploadedFile.objects(checksum=file.duplicate_of).first()
@@ -407,7 +407,7 @@ def create_release():
         release.save()
     except ValidationError as exc:
         app.logger.error('Failed to save release for mod %s due to %s', mod.mid, exc)
-        return jsonify(result=False, reason=str(exc))
+        return jsonify(result=False, reason=str(exc)), 500
 
     for file in files:
         if not file.mod:
