@@ -144,6 +144,9 @@ def finish_chunked_upload():
     if not file:
         abort(404)
 
+    if file.done:
+        return jsonify(result=True)
+
     record = UploadedFile(expires=time.time() + 60 * 60,
                           checksum=request.form['checksum'],
                           content_checksum=request.form.get('content_checksum'),
