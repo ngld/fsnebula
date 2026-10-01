@@ -13,6 +13,9 @@ from ..helpers import (
 # TODO: Prevent abuse (spamming someone with registration mails)
 @app.route('/api/1/register', methods={'POST'})
 def register():
+    if User.objects(username__iexact=request.form['name']).first():
+        return jsonify(result=False, reason='already registered')
+
     user = User(
         username=request.form['name'],
         email=request.form['email'],
