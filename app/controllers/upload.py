@@ -145,6 +145,28 @@ def finish_chunked_upload():
         abort(404)
 
     if file.done:
+        record = UploadedFile.objects(checksum=request.form['checksum']).first()
+        if record:
+            return jsonify(result=True)
+
+        # Upload was marked done but UploadedFile record is missing.
+        # The file should already exist in permanent storage from the previous run.
+        app.logger.warning('Upload %s marked done but UploadedFile record for %s is missing, re-creating', file.id, request.form['checksum'])
+        record = UploadedFile(expires=-1,
+                              checksum=request.form['checksum'],
+                              content_checksum=request.form.get('content_checksum'),
+                              vp_checksum=request.form.get('vp_checksum'),
+                              filesize=file.filesize)
+        record.gen_filename()
+
+        full_path = os.path.join(app.config['FILE_STORAGE'], os.path.normpath(record.filename))
+        if not os.path.isfile(full_path):
+            app.logger.error('Upload %s marked done but assembled file is also missing at %s', file.id, full_path)
+            file.done = False
+            file.save()
+            return jsonify(result=False, reason='upload lost, please retry'), 500
+
+        record.save()
         return jsonify(result=True)
 
     record = UploadedFile(expires=time.time() + 60 * 60,
@@ -162,7 +184,6 @@ def finish_chunked_upload():
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
     h = hashlib.new('sha256')
-    failed = False
     try:
         with open(full_path, 'wb') as hdl:
             for num in range(file.total_parts):
@@ -173,7 +194,7 @@ def finish_chunked_upload():
                         data = chunk.read(1024 * 1024)
                         if not data:
                             break
-                        
+
                         h.update(data)
                         hdl.write(data)
     except Exception:
@@ -186,7 +207,7 @@ def finish_chunked_upload():
         os.unlink(full_path)
         record.delete()
         return jsonify(result=False, reason='checksum fail')
-    
+
     record.make_permanent()
     file.done = True
     file.save()
