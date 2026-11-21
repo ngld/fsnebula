@@ -1,9 +1,12 @@
 import os.path
+import glob
 import time
 import re
 import hashlib
 import shutil
+import secrets
 import magic
+from contextlib import suppress
 from io import SEEK_END
 from flask import request, jsonify, abort
 
@@ -13,6 +16,7 @@ from ..models import UploadedFile, ChunkedUpload
 
 
 HEX_RE = re.compile(r'^[0-9a-f]+$')
+SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
 @app.route('/api/1/upload/check', methods={'POST'})
@@ -92,7 +96,9 @@ def upload_file():
             app.logger.warning('UploadedFile %s is a duplicate of %s!' % (record.checksum, duplicate.checksum))
 
     record.gen_filename()
-    record.save()
+    # Saving over a permanent record would make it temporary again.
+    if not record.save_unless_permanent():
+        return jsonify(result=True)
 
     full_path = os.path.join(app.config['FILE_STORAGE'], os.path.normpath(record.filename))
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -140,6 +146,10 @@ def finish_chunked_upload():
     if not user:
         abort(403)
 
+    # The checksum becomes part of the stored file's path.
+    if not SHA256_RE.fullmatch(request.form['checksum']):
+        abort(400)
+
     file = ChunkedUpload.objects(id=request.form['id']).first()
     if not file:
         abort(404)
@@ -153,13 +163,23 @@ def finish_chunked_upload():
                           vp_checksum=request.form.get('vp_checksum'),
                           filesize=file.filesize)
 
-    record.gen_filename()
-    record.save()
-
-    full_path = os.path.join(app.config['FILE_STORAGE'], os.path.normpath(record.filename))
     chunk_path = os.path.join(app.config['FILE_STORAGE'], 'chunks', file.id)
 
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    # A finish that was killed mid-join (e.g. by a uWSGI reload) leaves its
+    # joined file behind; a live join keeps touching its file.
+    cutoff = time.time() - 60 * 60
+    for stale in glob.glob(os.path.join(chunk_path, 'joined-*')):
+        with suppress(OSError):
+            if os.path.getmtime(stale) < cutoff:
+                os.unlink(stale)
+
+    # A name of its own, so overlapping finishes never share a file. Nothing is
+    # saved until the hash matches.
+    record.filename = os.path.join('chunks', file.id, 'joined-' + secrets.token_hex(8))
+    full_path = os.path.join(app.config['FILE_STORAGE'], record.filename)
+
+    # make_permanent() only saves after the file is moved into public/.
+    record.validate()
 
     h = hashlib.new('sha256')
     failed = False
@@ -178,16 +198,21 @@ def finish_chunked_upload():
                         hdl.write(data)
     except Exception:
         app.logger.exception('Failed to join chunks for file %s!' % file.id)
-        os.unlink(full_path)
-        record.delete()
+        # The chunk folder may already be gone.
+        with suppress(FileNotFoundError):
+            os.unlink(full_path)
         abort(500)
 
     if h.hexdigest() != record.checksum:
-        os.unlink(full_path)
-        record.delete()
+        with suppress(FileNotFoundError):
+            os.unlink(full_path)
         return jsonify(result=False, reason='checksum fail')
-    
-    record.make_permanent()
+
+    # Leave a record that became permanent while the chunks were joined.
+    existing = UploadedFile.objects(checksum=record.checksum).first()
+    if not existing or existing.expires != -1:
+        record.make_permanent()
+
     file.done = True
     file.save()
 

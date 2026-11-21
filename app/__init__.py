@@ -1,6 +1,7 @@
 import os.path
 import logging
 from flask import Flask
+from jinja2 import select_autoescape
 from werkzeug.middleware.shared_data import SharedDataMiddleware
 from mongoengine import connect
 
@@ -8,6 +9,9 @@ __all__ = {'app'}
 
 app = Flask(__name__)
 app.config.from_envvar('NEBULA_SETTINGS')
+# Flask escapes by file ending and does not know ".html.j2". Escape
+# everything except the plain-text mail templates.
+app.jinja_env.autoescape = select_autoescape(disabled_extensions=('txt',), default=True)
 app.logger.setLevel(logging.INFO)
 connect(host=app.config['MONGO_DB'], connect=False)
 

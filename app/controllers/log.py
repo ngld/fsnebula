@@ -44,7 +44,10 @@ def view_raw_log(log_id):
     if not log:
         abort(404)
 
-    return log.content
+    return log.content, 200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff'
+    }
 
 
 @app.route('/log/search', methods={'GET', 'POST'})

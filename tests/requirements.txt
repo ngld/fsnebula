@@ -1,0 +1,7 @@
+# The app's own pins, plus what the tests need on top of them.
+# python-magic also needs the libmagic system library; on Windows install
+# python-magic-bin for it.
+-r ../requirements.txt
+mongomock==4.1.2
+# mongomock imports pkg_resources, which setuptools 81 removed.
+setuptools<81

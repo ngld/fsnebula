@@ -5,6 +5,7 @@ from mongoengine import (
     ReferenceField, IntField, DateTimeField, EmbeddedDocumentListField,
     LazyReferenceField, CASCADE
 )
+from pymongo.errors import DuplicateKeyError
 from flask import url_for
 from . import app
 
@@ -196,6 +197,25 @@ class UploadedFile(Document):
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.move(os.path.join(app.config['FILE_STORAGE'], old_path), dest_path)
         self.save()
+
+    def save_unless_permanent(self):
+        # One database call instead of a look-up and a save, so a release
+        # cannot make the record permanent in between and then be overwritten.
+        # A permanent record does not match the filter, and the insert that
+        # follows is refused because its checksum is already there. Two first
+        # saves at the same moment are refused the same way, so a refusal is
+        # tried once more: by then the other record is there to be replaced,
+        # unless it is permanent. This relies on records never being deleted.
+        self.validate()
+        for _ in range(2):
+            try:
+                self._get_collection().replace_one(
+                    {'_id': self.checksum, 'expires': {'$ne': -1}}, self.to_mongo(), upsert=True)
+                return True
+            except DuplicateKeyError:
+                pass
+
+        return False
 
 
 class ChunkedUpload(Document):
