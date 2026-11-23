@@ -22,4 +22,4 @@ requests==2.27.1
 semantic-version==2.8.5
 six==1.15.0
 urllib3==1.26.20
-Werkzeug==1.0.1
+Werkzeug==3.1.9
