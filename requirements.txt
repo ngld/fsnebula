@@ -1,6 +1,6 @@
 argon2-cffi==20.1.0
 Brotli==1.2.1
-certifi==2025.4.26
+certifi==2026.10.18
 cffi==1.14.0
 chardet==3.0.4
 charset-normalizer==2.0.12
