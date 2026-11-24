@@ -7,7 +7,6 @@ See tests/common.py for what is needed to run them.
 """
 import builtins
 import io
-import logging
 import os
 import shutil
 import threading
@@ -39,7 +38,7 @@ def send_parts(headers, upload_id, parts, announced=None):
 
 
 def joined_leftovers():
-    return {name for name in stored_tree() if os.path.basename(name).startswith('joined-')}
+    return {name for name in stored_tree() if os.path.basename(name).startswith(('joined-', 'assembly-'))}
 
 
 def published(checksum):
@@ -47,169 +46,68 @@ def published(checksum):
 
 
 class OverlappingFinish(Base):
-    """Two finish requests for one upload at the same time, which is what a
-    client sends when the first one outlasts its timeout. Each request runs in
-    a thread named A or B and is held at one chosen point until released.
-
-    These need Linux or macOS file behaviour: they delete and rename open
-    files, and rely on a rename giving the file a new inode."""
-
-    def overlap(self, stop_at, start_order, release_order, before_release=None):
-        """stop_at maps a thread name to where it waits: ('chunk', '2') just
-        before it reads that chunk, ('move',) just before the joined file is
-        moved into public/, ('rmtree',) just before the chunk folder is
-        removed. `before_release`, if given, is called with the uploaded
-        bytes once both requests are waiting."""
+    def assert_serialized_finish(self, retry_id):
         headers = make_user('erin')
         parts = [bytes([65 + num]) * PART for num in range(4)]
         data = b''.join(parts)
+        checksum = sha(data)
         upload_id = 'ab' * 8
         send_parts(headers, upload_id, parts)
-        chunk_dir = os.path.join(UPLOADS, 'chunks', upload_id)
-        stopped = {name: threading.Event() for name in stop_at}
-        carry_on = {name: threading.Event() for name in stop_at}
+        if retry_id != upload_id:
+            send_parts(headers, retry_id, parts)
 
-        def stop_here(*point):
-            name = threading.current_thread().name
-            if stop_at.get(name) == point:
-                stopped[name].set()
-                carry_on[name].wait(timeout=20)
+        assembling = threading.Event()
+        resume = threading.Event()
+        assemble = upload_ctl._assemble_upload
+        answers = []
 
-        def stopping_open(path, mode='r', *args, **kwargs):
-            if 'r' in mode and os.path.dirname(str(path)) == chunk_dir:
-                stop_here('chunk', os.path.basename(str(path)))
-            return builtins.open(path, mode, *args, **kwargs)
+        def pause(*args, **kwargs):
+            assembling.set()
+            if not resume.wait(timeout=15):
+                raise RuntimeError('Timed out waiting to resume assembly')
+            return assemble(*args, **kwargs)
 
-        real_move, real_rmtree = shutil.move, shutil.rmtree
+        def call_finish():
+            answers.append(app.test_client().post(
+                '/api/1/multiupload/finish', headers=headers, data={'id': upload_id, 'checksum': checksum}))
 
-        def stopping_move(*args, **kwargs):
-            stop_here('move')
-            return real_move(*args, **kwargs)
+        with mock.patch.object(upload_ctl, '_assemble_upload', pause):
+            worker = threading.Thread(target=call_finish, daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(assembling.wait(timeout=10))
+                retry = finish(headers, retry_id, checksum)
+                self.assertEqual(retry.status_code, 503)
+                self.assertEqual(retry.get_json(), {'result': False, 'reason': 'upload busy'})
+                self.assertIsNone(models.UploadedFile.objects(checksum=checksum).first())
+                self.assertNotIn(os.path.normpath(published(checksum)), stored_tree())
+            finally:
+                resume.set()
+                worker.join(timeout=20)
 
-        def stopping_rmtree(*args, **kwargs):
-            stop_here('rmtree')
-            return real_rmtree(*args, **kwargs)
-
-        answers = {}
-
-        def call(label):
-            resp = app.test_client().post('/api/1/multiupload/finish', headers=headers,
-                                          data={'id': upload_id, 'checksum': sha(data)})
-            answers[label] = (resp.status_code, resp.get_json(silent=True))
-
-        upload_ctl.open = stopping_open
-        self.addCleanup(delattr, upload_ctl, 'open')
-        for name, stand_in in (('move', stopping_move), ('rmtree', stopping_rmtree)):
-            patcher = mock.patch.object(shutil, name, stand_in)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        # Whatever happens, let both threads run on, so a failed assert here
-        # does not leave one waiting into the next test.
-        for name in stop_at:
-            self.addCleanup(carry_on[name].set)
-
-        threads = {label: threading.Thread(target=call, args=(label,), name=label, daemon=True)
-                   for label in start_order}
-        for label in start_order:
-            self.addCleanup(threads[label].join, 25)
-
-        # Every error the app logs while the two requests run, in order. A
-        # plain list and not assertLogs, which fails when nothing is logged.
-        errors = []
-        collector = logging.Handler(logging.ERROR)
-        collector.emit = lambda record: errors.append(record.getMessage())
-        level = app.logger.level
-        app.logger.addHandler(collector)
-        app.logger.setLevel(logging.ERROR)
-        self.addCleanup(app.logger.setLevel, level)
-        self.addCleanup(app.logger.removeHandler, collector)
-
-        for label in start_order:
-            threads[label].start()
-            self.assertTrue(stopped[label].wait(timeout=20), 'request %s never reached its stop' % label)
-        if before_release:
-            before_release(data)
-        for label in release_order:
-            carry_on[label].set()
-            threads[label].join(timeout=30)
-            self.assertFalse(threads[label].is_alive())
-
-        record = models.UploadedFile.objects(checksum=sha(data)).first()
-        self.assertIsNotNone(record)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([response.get_json() for response in answers], [{'result': True}])
+        record = models.UploadedFile.objects.get(checksum=checksum)
         self.assertEqual(record.expires, -1)
-        self.assertEqual(record.filename, published(sha(data)))
-        with open(os.path.join(UPLOADS, record.filename), 'rb') as stream:
+        self.assertEqual(record.filename, published(checksum))
+        path = os.path.join(UPLOADS, record.filename)
+        inode = os.stat(path).st_ino
+        record.update(set__indexed=True)
+
+        self.assertEqual(finish(headers, retry_id, checksum).get_json(), {'result': True})
+        self.assertTrue(models.ChunkedUpload.objects.get(id=retry_id).done)
+        self.assertEqual(os.stat(path).st_ino, inode)
+        self.assertTrue(models.UploadedFile.objects.get(checksum=checksum).indexed)
+        with open(path, 'rb') as stream:
             self.assertEqual(stream.read(), data)
-        self.assertEqual(finish(headers, upload_id, sha(data)).get_json(), {'result': True})
         self.assertEqual(joined_leftovers(), set())
-        self.assertNotIn(os.path.join('temp', sha(data)), stored_tree())
-        return answers, errors, data
+        self.assertNotIn(os.path.join('chunks', retry_id), stored_tree())
 
-    def assert_errors_logged(self, errors, *starts):
-        self.assertEqual(len(errors), len(starts), errors)
-        for text, start in zip(errors, starts):
-            self.assertTrue(text.startswith(start), text)
+    def test_retry_for_the_same_upload_is_busy_until_the_first_finishes(self):
+        self.assert_serialized_finish('ab' * 8)
 
-    def test_first_request_finishes_first(self):
-        answers, errors, _ = self.overlap({'A': ('chunk', '2'), 'B': ('chunk', '0')}, 'AB', 'AB')
-        self.assertEqual(answers['A'], (200, {'result': True}))
-        # Not "checksum fail", which the client treats as final.
-        self.assertEqual(answers['B'][0], 500)
-        # One logged join failure and nothing uncaught: the loser's own
-        # clean-up copes with its joined file having gone with the folder.
-        self.assert_errors_logged(errors, 'Failed to join chunks')
-
-    def test_second_request_finishes_first(self):
-        answers, errors, _ = self.overlap({'A': ('chunk', '2'), 'B': ('chunk', '0')}, 'AB', 'BA')
-        self.assertEqual(answers['B'], (200, {'result': True}))
-        self.assertEqual(answers['A'][0], 500)
-        self.assert_errors_logged(errors, 'Failed to join chunks')
-
-    def test_loser_has_joined_everything_when_the_winner_finishes(self):
-        # B is about to move its joined file when A publishes and removes the
-        # chunk folder. B's move then has nothing to move; it must not empty
-        # the file A published. (This rests on the library's move reading its
-        # source first, so it passes on the old code too.)
-        answers, errors, _ = self.overlap({'A': ('chunk', '2'), 'B': ('move',)}, 'AB', 'AB')
-        self.assertEqual(answers['A'], (200, {'result': True}))
-        self.assertEqual(answers['B'][0], 500)
-        self.assert_errors_logged(errors, 'Exception on /api/1/multiupload/finish')
-
-    def test_both_requests_join_everything(self):
-        # A has published and is about to remove the chunk folder; B, which
-        # started before A was done, then joins the same chunks. B must see
-        # A's record and leave the published file as it is: the same file on
-        # disk, not a second copy moved over it.
-        noted = {}
-
-        def note_file(data):
-            noted['inode'] = os.stat(os.path.join(UPLOADS, published(sha(data)))).st_ino
-
-        answers, errors, data = self.overlap({'B': ('chunk', '0'), 'A': ('rmtree',)}, 'BA', 'BA',
-                                             before_release=note_file)
-        self.assertEqual(answers, {'A': (200, {'result': True}), 'B': (200, {'result': True})})
-        self.assertEqual(os.stat(os.path.join(UPLOADS, published(sha(data)))).st_ino, noted['inode'])
-        # A finds the folder already removed by B.
-        self.assert_errors_logged(errors, 'Failed to cleanup chunk directory')
-
-    def test_known_cost_both_requests_are_past_the_look_up(self):
-        # A known cost, not a goal: the look-up and the publish are two
-        # steps. B has looked (nothing published yet) and is about to move
-        # when A publishes; B then publishes the same checked bytes over A's
-        # file and saves the record again, resetting its other fields.
-        # Change this test with the behaviour.
-        noted = {}
-
-        def note_file(data):
-            noted['inode'] = os.stat(os.path.join(UPLOADS, published(sha(data)))).st_ino
-            models.UploadedFile.objects(checksum=sha(data)).update_one(set__indexed=True)
-
-        answers, errors, data = self.overlap({'B': ('move',), 'A': ('rmtree',)}, 'BA', 'BA',
-                                             before_release=note_file)
-        self.assertEqual(answers, {'A': (200, {'result': True}), 'B': (200, {'result': True})})
-        self.assertNotEqual(os.stat(os.path.join(UPLOADS, published(sha(data)))).st_ino, noted['inode'])
-        self.assertFalse(models.UploadedFile.objects(checksum=sha(data)).first().indexed)
-        self.assert_errors_logged(errors, 'Failed to cleanup chunk directory')
+    def test_two_upload_ids_for_the_same_checksum_publish_once(self):
+        self.assert_serialized_finish('bc' * 8)
 
 
 class FinishSavesNothingEarly(Base):
@@ -229,7 +127,8 @@ class FinishSavesNothingEarly(Base):
         data = b'not released yet'
         upload_small(owner, data)
         send_parts(other, 'ce' * 8, [b'first of two parts'], announced=2)
-        self.assertEqual(finish(other, 'ce' * 8, sha(data)).status_code, 500)
+        self.assertEqual(finish(other, 'ce' * 8, sha(data)).get_json(),
+                         {'result': False, 'reason': 'part missing'})
         self.assert_unreleased_file_intact(owner, data)
 
     def assert_unreleased_file_intact(self, owner, data):
@@ -278,7 +177,8 @@ class FinishSavesNothingEarly(Base):
         headers = make_user('carol')
         data = b'only the first of two parts'
         send_parts(headers, '23' * 8, [data], announced=2)
-        self.assertEqual(finish(headers, '23' * 8, sha(data)).status_code, 500)
+        self.assertEqual(finish(headers, '23' * 8, sha(data)).get_json(),
+                         {'result': False, 'reason': 'part missing'})
         self.assertIsNone(models.UploadedFile.objects(checksum=sha(data)).first())
         self.assertEqual(joined_leftovers(), set())
         self.assertFalse(models.ChunkedUpload.objects(id='23' * 8).first().done)
@@ -307,10 +207,7 @@ class FinishSavesNothingEarly(Base):
                 self.assertEqual(joined_leftovers(), set())
                 self.assertFalse(models.ChunkedUpload.objects(id='9b' * 8).first().done)
 
-    def test_joined_file_left_by_a_stopped_request_goes_with_the_next_finish(self):
-        # A known cost: a request stopped without its clean-up running (a
-        # killed worker) leaves its joined file. It is in the upload's own
-        # folder, so the next finish that succeeds removes it.
+    def test_interrupted_join_and_retry_clean_up_their_own_files(self):
         class Stopped(BaseException):
             pass
 
@@ -330,7 +227,10 @@ class FinishSavesNothingEarly(Base):
                 finish(headers, '8a' * 8, sha(data))
         finally:
             del upload_ctl.open
-        self.assertEqual(len(joined_leftovers()), 1)
+        self.assertEqual(joined_leftovers(), set())
+        # A process kill can bypass the temporary directory's cleanup.
+        stale = os.path.join(chunk_dir, 'assembly-interrupted')
+        os.makedirs(stale)
         self.assertEqual(finish(headers, '8a' * 8, sha(data)).get_json(), {'result': True})
         self.assertEqual(joined_leftovers(), set())
 
@@ -346,7 +246,8 @@ class FinishSavesNothingEarly(Base):
         hour_ago = time.time() - 60 * 60 - 60
         os.utime(old, (hour_ago, hour_ago))
         # The missing part makes this finish fail, so the folder stays.
-        self.assertEqual(finish(headers, '8b' * 8, sha(b'whatever')).status_code, 500)
+        self.assertEqual(finish(headers, '8b' * 8, sha(b'whatever')).get_json(),
+                         {'result': False, 'reason': 'part missing'})
         self.assertFalse(os.path.exists(old))
         self.assertTrue(os.path.exists(recent))
 
@@ -356,7 +257,7 @@ class FinishSavesNothingEarly(Base):
         resp = client.post('/api/1/multiupload/part', headers=headers,
                            data={'id': '67' * 8, 'part': 'joined-00', 'file': (io.BytesIO(b'x'), 'p')},
                            content_type='multipart/form-data')
-        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.status_code, 400)
         self.assertEqual(joined_leftovers(), set())
 
 

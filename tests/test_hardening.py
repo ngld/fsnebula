@@ -68,7 +68,10 @@ class FinishChecksumFormat(Base):
         resp = finish(headers, 'ef' * 8, sha(b'other bytes'))
         self.assertEqual(resp.get_json(), {'result': False, 'reason': 'checksum fail'})
         self.assertEqual(models.UploadedFile.objects.count(), 0)
-        self.assertEqual(stored_tree(), before)
+        after = stored_tree()
+        self.assertLessEqual(before, after)
+        new_payloads = {path for path in after - before if path.split(os.sep)[0] != 'upload-locks'}
+        self.assertEqual(new_payloads, set())
 
 
 class SecondPlainUpload(PublishedFile):
@@ -107,9 +110,7 @@ class SecondPlainUpload(PublishedFile):
         create_mod(headers, 'latemod')
         self.assertTrue(release(headers, 'latemod', '1.0.0', sha(data)).get_json()['result'])
 
-    def test_published_file_missing_from_disk_is_not_restored(self):
-        # A known cost, not a goal: the record is all that is looked at.
-        # Change this test with the behaviour.
+    def test_published_file_missing_from_disk_is_restored_from_verified_bytes(self):
         headers = make_user('carol')
         data = b'published archive bytes'
         self.publish(headers, data)
@@ -118,8 +119,7 @@ class SecondPlainUpload(PublishedFile):
 
         resp = upload_small(headers, data)
         self.assertEqual(resp.get_json(), {'result': True})
-        self.assertEqual(models.UploadedFile.objects(checksum=sha(data)).first().expires, -1)
-        self.assertFalse(os.path.exists(os.path.join(UPLOADS, record.filename)))
+        self.assert_still_published(data)
 
 
 class TemplateEscaping(Base):

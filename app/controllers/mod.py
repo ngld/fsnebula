@@ -15,6 +15,7 @@ from ..models import (
     Dependency, Executable, ModArchive, ModFile, Package, ModRelease, Mod, UploadedFile, TeamMember, User,
     TEAM_OWNER, TEAM_MANAGER, TEAM_UPLOADER, TEAM_TESTER
 )
+from .upload import checked_upload_record
 
 
 @app.route('/api/1/mod/check_id', methods={'POST'})
@@ -364,7 +365,7 @@ def create_release():
 
                 archive.urls = ameta['urls']
             else:
-                file = UploadedFile.objects(checksum=archive.checksum).first()
+                file = checked_upload_record(UploadedFile.objects(checksum=archive.checksum).first())
                 if not file:
                     app.logger.error('Missing file %s (%s) for mod %s', ameta['filename'], archive.checksum, mod.mid)
                     return jsonify(result=False, reason='archive missing', archive=ameta['filename'])

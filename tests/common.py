@@ -25,7 +25,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 START_DIR = os.getcwd()
 ROOT = tempfile.mkdtemp(prefix='fsnebula-tests-')
 UPLOADS = os.path.join(ROOT, 'uploads')
-for sub in ('public', 'cache', 'chunks', 'temp'):
+UPLOAD_SUBDIRS = ('public', 'cache', 'chunks', 'temp')
+for sub in UPLOAD_SUBDIRS:
     os.makedirs(os.path.join(UPLOADS, sub))
 
 
@@ -150,6 +151,9 @@ class Base(unittest.TestCase):
     def setUp(self):
         for name in ('User', 'Mod', 'ModRelease', 'UploadedFile', 'ChunkedUpload', 'Log'):
             getattr(models, name).drop_collection()
+        shutil.rmtree(UPLOADS)
+        for sub in UPLOAD_SUBDIRS:
+            os.makedirs(os.path.join(UPLOADS, sub))
 
 
 class PublishedFile(Base):

@@ -9,7 +9,7 @@ import os
 import unittest
 
 from common import (
-    PublishedFile, UPLOADS, create_mod, finish, make_user, models, release, send_chunks, sha,
+    PublishedFile, UPLOADS, client, create_mod, finish, make_user, models, release, send_chunks, sha,
     upload_chunked, upload_small
 )
 
@@ -47,9 +47,6 @@ class ChunkedFinishOfPermanentFile(PublishedFile):
         self.assertEqual(os.stat(os.path.join(UPLOADS, record.filename)).st_ino, before.st_ino)
 
     def test_finish_sent_twice(self):
-        # With PR 49 in the tree its "if file.done" return answers the second
-        # finish before the permanent-record check is reached. Kept to show
-        # the record is still there and still permanent afterwards.
         headers = make_user('carol')
         data = b'chunked archive bytes'
         first = upload_chunked(headers, '78' * 8, data, sha(data))
@@ -60,6 +57,11 @@ class ChunkedFinishOfPermanentFile(PublishedFile):
         self.assertEqual(record.expires, -1)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.get_json(), {'result': True})
+        status = client.post('/api/1/multiupload/start', headers=headers,
+                             data={'id': '78' * 8, 'size': len(data), 'parts': 1})
+        self.assertTrue(status.get_json()['done'])
+        self.assertEqual(finish(headers, '78' * 8, sha(b'different archive')).get_json(),
+                         {'result': False, 'reason': 'checksum fail'})
 
     def test_unreleased_file_finished_again_becomes_permanent(self):
         # Only permanent records are left alone: a temporary one is still
@@ -77,11 +79,7 @@ class ChunkedFinishOfPermanentFile(PublishedFile):
         create_mod(headers, 'latemod')
         self.assertTrue(release(headers, 'latemod', '1.0.0', sha(data)).get_json()['result'])
 
-    def test_published_file_missing_from_disk_is_not_restored(self):
-        # A known cost, not a goal: the record is all that is looked at. The
-        # chunks are joined and checked, then removed with the upload marked
-        # done, and the file is still missing. Change this test with the
-        # behaviour.
+    def test_published_file_missing_from_disk_is_restored_from_verified_chunks(self):
         headers = make_user('carol')
         data = b'published archive bytes'
         self.publish(headers, data)
@@ -90,7 +88,7 @@ class ChunkedFinishOfPermanentFile(PublishedFile):
         send_chunks(headers, 'bc' * 8, data)
         resp = finish(headers, 'bc' * 8, sha(data))
         self.assertEqual(resp.get_json(), {'result': True})
-        self.assertFalse(os.path.exists(os.path.join(UPLOADS, record.filename)))
+        self.assert_still_published(data)
         self.assertTrue(models.ChunkedUpload.objects(id='bc' * 8).first().done)
         self.assertFalse(os.path.exists(os.path.join(UPLOADS, 'chunks', 'bc' * 8)))
 

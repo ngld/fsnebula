@@ -61,12 +61,13 @@ def send_mail(msg):
     smtp.quit()
 
 
-def gen_hash(stream, algo='md5'):
+def gen_hash(stream, algo='md5', read_size=None):
     h = hashlib.new(algo)
-    chunk = stream.read(16 * h.block_size)
+    read_size = read_size or 16 * h.block_size
+    chunk = stream.read(read_size)
 
     while chunk:
         h.update(chunk)
-        chunk = stream.read(16 * h.block_size)
+        chunk = stream.read(read_size)
 
     return h.hexdigest()
